@@ -13,16 +13,21 @@ import { CoachingPanel } from "@/components/analysis/CoachingPanel";
 import { CornerDetail, type CornerLap } from "@/components/analysis/CornerDetail";
 import {
   CornerReport,
+  REPORT_SORT_OPTIONS,
   reportFocus,
   type ReportLap,
+  type ReportSort,
 } from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
 import { GearingPanel } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
+import { LapStrip } from "@/components/analysis/LapStrip";
 import { LapTimeChart } from "@/components/analysis/LapTimeChart";
+import { LayersMenu } from "@/components/analysis/LayersMenu";
 import { PlaybackBar } from "@/components/analysis/PlaybackBar";
-import { RaceLineMap, selectedCorner, type MapLap } from "@/components/analysis/RaceLineMap";
+import { layerKey, RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
+import { SectorTimes, sectorNote } from "@/components/analysis/SectorTimes";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
 import { StintTrendChart } from "@/components/analysis/StintTrend";
 import { LargeDialog } from "@/components/ui/Dialog";
@@ -39,9 +44,11 @@ import {
   saveChannelKeys,
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
+import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
 import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
+import { LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
 import { hasTrend } from "@/lib/stint";
-import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
+import { formatLapTime, formatSpeed, speedUnit, speedValue, formatTime } from "@/lib/format";
 import {
   openInAnalysis,
   reflectAnalysisSelection,
@@ -54,8 +61,11 @@ import {
   type CategoryBest,
   type CoachingNotes,
   type CompareResult,
+  type Corner,
   type DeviationResult,
   type LapSummary,
+  type Sector,
+  type SectorTimes as SectorTimesData,
   type SessionSummary,
   type StintTrend,
   type TrackOutline,
@@ -253,9 +263,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       // lib/analysisSelection). Returning early here is what used to leave
       // the previous session's laps on screen under this one's title.
       const rule = { laps: ls, manual: manualSelection.current, keep };
+      // The same ids keep the same array: the zoom window resets whenever
+      // the selection changes, and a lap arriving live in SOME session
+      // (this list is refetched on every lap) must not throw away the
+      // stretch being looked at in this one.
       setSelected((cur) => {
         const next = resolveSelected(cur, rule);
-        return cur.length === 0 && next.length === 0 ? cur : next;
+        const same = cur.length === next.length && cur.every((id, i) => id === next[i]);
+        return same ? cur : next;
       });
       setRefLap((cur) => resolveReference(cur, rule));
     }).catch(() => live && setError("Could not load laps"));
@@ -422,6 +437,25 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     };
   }, [sessionId, lapEpoch]);
 
+  // Every lap of the session split at the circuit's sectors (#22). Cleared
+  // with the session, kept while a lap arrives, like the stint trend.
+  const [sectorTimes, setSectorTimes] = useState<SectorTimesData | null>(null);
+  const sectorsFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (sessionId == null) return;
+    if (sectorsFor.current !== sessionId) {
+      sectorsFor.current = sessionId;
+      setSectorTimes(null);
+    }
+    let live = true;
+    api.sectorTimes(sessionId)
+      .then((t) => live && setSectorTimes(t))
+      .catch(() => live && setSectorTimes(null));
+    return () => {
+      live = false;
+    };
+  }, [sessionId, lapEpoch]);
+
   // The surveyed road under the race line (#51). Keyed on the SESSION'S
   // circuit rather than the reference lap: the lap only ever resolved to its
   // session's circuit anyway, so this is the same answer without refetching
@@ -444,11 +478,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
   // Synchronized zoom state across all charts (minDist, maxDist in meters)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
+  // The window while a strip drag is in progress. The map and the strips
+  // follow it frame by frame; the charts, heavier to re-zoom, take the
+  // committed window on release.
+  const [liveZoom, setLiveZoom] = useState<[number, number] | null>(null);
+  const shownZoom = liveZoom ?? zoomRange;
 
   // Reset zoom window when session or lap selection changes
   useEffect(() => {
     setZoomRange(null);
+    setLiveZoom(null);
   }, [sessionId, selected, refLap]);
+
+  // How the race line and the lap strip are coloured, and the corner
+  // report's order. View state, not settings: a way of looking at this
+  // comparison rather than a preference.
+  const [mapLens, setMapLens] = useState<MapLens>("inputs");
+  const [reportSort, setReportSort] = useState<ReportSort>("track");
+  const [mapMaximized, setMapMaximized] = useState(false);
 
   // Cursor sync (rAF-throttled to keep hover smooth)
   const [cursorDist, setCursorDist] = useState<number | null>(null);
@@ -617,34 +664,28 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     }));
   }, [compare, lapLabels, refLap, lapColors]);
 
-  // Which map layers have anything to show for this selection. A toggle for
+  // Which map layers have anything to show for this selection. A switch for
   // a layer the laps cannot fill (a recording from before the channel
-  // existed, a lap with no events) is a button that does nothing.
-  const mapLayerToggles = useMemo(() => {
-    const toggles: { key: MapLayerKey; label: string; tip: string }[] = [];
-    if (mapLaps.some((lap) => (lap.entry.events?.length ?? 0) > 0)) {
-      toggles.push({
-        key: "events",
-        label: "Events",
-        tip: "Mark where each lockup, wheelspin, bottoming and kerb strike began, in the lap's colour. Click a marker to zoom every panel to it",
-      });
+  // existed, a lap with no events, a circuit never surveyed) is a switch
+  // that does nothing, so the Layers menu lists only these.
+  const availableLayers = useMemo(() => {
+    const keys = new Set<MapLayerKey>(["peaks"]);
+    const ref = mapLaps.find((lap) => lap.isRef);
+    if ((outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0) keys.add("road");
+    if ((ref?.entry.corners?.length ?? 0) > 0) {
+      keys.add("numbers");
+      keys.add("apex");
+      if (mapLaps.some((lap) => lap.entry.corner_report?.some((r) => r.brake_on != null))) {
+        keys.add("brakes");
+      }
     }
-    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_TCS))) {
-      toggles.push({
-        key: "tcs",
-        label: "TCS",
-        tip: "Ring every stretch where traction control was cutting power. The same exit every lap means the car is over the limit there",
-      });
-    }
-    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_ASM))) {
-      toggles.push({
-        key: "asm",
-        label: "ASM",
-        tip: "Ring every stretch where stability management was intervening",
-      });
-    }
-    return toggles;
-  }, [mapLaps]);
+    if (mapLaps.length > 1) keys.add("others");
+    if (ref?.entry.series.surface?.some((v) => v > 0)) keys.add("kerbs");
+    if (mapLaps.some((lap) => (lap.entry.events?.length ?? 0) > 0)) keys.add("events");
+    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_TCS))) keys.add("tcs");
+    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_ASM))) keys.add("asm");
+    return keys;
+  }, [mapLaps, outline]);
 
   // Same laps again, converted to g for the traction circle. Empty whenever
   // the recording predates the accelerometer (packet A) — the panel then
@@ -669,25 +710,128 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       .filter((l) => l.report.length > 0);
   }, [compare, lapLabels, refLap, lapColors]);
 
+  // Longest distance across the compared laps — the lap strip's length and
+  // the fallback sectors' denominator.
+  const maxDist = useMemo(() => {
+    if (!compare) return 0;
+    let m = 0;
+    for (const lap of Object.values(compare.laps)) {
+      const d = lap.series.dist;
+      if (d && d.length > 0) m = Math.max(m, d[d.length - 1]);
+    }
+    return m;
+  }, [compare]);
+
+  // The reference's corners with where it braked for each (#110), so that
+  // every zoom window — the map's numbers, the strip, the report card, the
+  // notes — starts at the braking zone and agrees with the others.
+  const refCorners = useMemo<Corner[]>(() => {
+    const corners = refEntry?.corners ?? [];
+    const report = new Map((refEntry?.corner_report ?? []).map((r) => [r.n, r]));
+    return corners.map((c) => ({ ...c, brake_on: report.get(c.n)?.brake_on ?? null }));
+  }, [refEntry]);
+  const currentCorner = selectedCorner(refCorners, shownZoom);
+
+  // The circuit's sectors on the reference's axis, for the strips. A server
+  // older than #22 sends none; thirds of the lap stand in, which is what the
+  // old S1/S2/S3 buttons were.
+  const sectors = useMemo<Sector[]>(() => {
+    if (refEntry?.sectors && refEntry.sectors.length > 0) return refEntry.sectors;
+    if (maxDist <= 0) return [];
+    return [1, 2, 3].map((n) => ({
+      n,
+      name: "",
+      start_dist: Math.round(((n - 1) * maxDist) / 3),
+      end_dist: n === 3 ? maxDist : Math.round((n * maxDist) / 3),
+      authored: false,
+    }));
+  }, [refEntry, maxDist]);
+
+  // The reference line's colouring under the chosen lens. Gain / loss needs
+  // a lap to compare: the report card's focus lap. A lens with nothing to
+  // colour by (no speed channel, no comparison lap) draws inputs instead.
+  const [reportFocusId, setReportFocusId] = useState<string | null>(null);
+  const focusLap = useMemo(() => {
+    const others = mapLaps.filter((lap) => !lap.isRef);
+    return others.find((lap) => lap.id === reportFocusId) ?? others[0] ?? null;
+  }, [mapLaps, reportFocusId]);
+  const lensData = useMemo(() => {
+    if (!refEntry) return null;
+    const gain =
+      focusLap?.entry.delta != null
+        ? { label: focusLap.label, dist: focusLap.entry.delta.dist, delta_ms: focusLap.entry.delta.delta_ms }
+        : null;
+    return (
+      lensSeries(mapLens, refEntry.series, units, gain) ??
+      lensSeries("inputs", refEntry.series, units, null)
+    );
+  }, [refEntry, mapLens, units, focusLap]);
+  const stripRuns = useMemo(
+    () => (lensData && refEntry ? lensRuns(lensData, refEntry.series.dist) : []),
+    [lensData, refEntry],
+  );
+
+  // What the strips and the charts' header say the window is.
+  const zoomLabel = currentCorner
+    ? `T${currentCorner.n} · ${currentCorner.direction === "L" ? "left" : "right"} · ${Math.round(
+        speedValue(currentCorner.min_speed, units),
+      )} ${speedUnit(units)} min`
+    : shownZoom
+      ? "Custom stretch"
+      : "Full lap";
+  const zoomText = `${Math.round(shownZoom?.[0] ?? 0).toLocaleString()}–${Math.round(
+    shownZoom?.[1] ?? maxDist,
+  ).toLocaleString()} m`;
+
+  // [ and ] step through the corners, Esc comes back to the full lap — an
+  // open menu takes Esc first, and a field being typed in takes every key.
+  const keyState = useRef({ refCorners, currentCorner });
+  keyState.current = { refCorners, currentCorner };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (/^(input|textarea|select)$/i.test(target.tagName) || target.isContentEditable)) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const { refCorners: corners, currentCorner: current } = keyState.current;
+      const forward = e.key === "]" || e.code === "BracketRight";
+      if (forward || e.key === "[" || e.code === "BracketLeft") {
+        const next = stepCorner(corners, current, forward ? 1 : -1);
+        if (next) {
+          e.preventDefault();
+          setZoomRange(cornerRange(next));
+        }
+      } else if (e.key === "Escape") {
+        setZoomRange(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Brake points on the map (#110): the reference's and the report's lap,
   // for the corner under the pointer in the report card — or, with the
   // pointer elsewhere, the corner the view is zoomed to. The second is what
   // makes them reachable at all on a screen where the card and the map do
   // not fit together: click the row, and the pins are there when the map
   // comes back into view.
-  const [reportFocusId, setReportFocusId] = useState<string | null>(null);
   const [hoverCorner, setHoverCorner] = useState<number | null>(null);
   // A table that goes away under the pointer never reports it leaving.
   useEffect(() => setHoverCorner(null), [compare]);
   const brakeMarks = useMemo(() => {
-    const corner =
-      hoverCorner ?? selectedCorner(refEntry?.corners ?? [], zoomRange)?.n ?? null;
+    const corner = hoverCorner ?? selectedCorner(refCorners, zoomRange)?.n ?? null;
     const focus = reportFocus(reportLaps, reportFocusId);
     return brakeMarkers(
       mapLaps.filter((lap) => lap.isRef || lap.id === focus?.id),
       corner,
     );
-  }, [hoverCorner, refEntry, zoomRange, reportLaps, reportFocusId, mapLaps]);
+  }, [hoverCorner, refCorners, zoomRange, reportLaps, reportFocusId, mapLaps]);
+  // The key for the header: the lens's own, then the marker layers drawn.
+  const mapKey = useMemo(
+    () => layerKey(mapLaps, mapLayers, shownZoom, mapLayers.brakes ? brakeMarks : []),
+    [mapLaps, mapLayers, shownZoom, brakeMarks],
+  );
 
   // Same laps, shaped for the Corner Detail widget (cursor-synced with the
   // charts and the map dot).
@@ -715,25 +859,6 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     return [...head, ...keptBack];
   }, [laps, showAllLaps, selected, refLap]);
   const hiddenLaps = laps.length - visibleLaps.length;
-
-  // Longest distance across the compared laps — the denominator for the
-  // sector buttons and the zoom readout in the map header.
-  const maxDist = useMemo(() => {
-    if (!compare) return 0;
-    let m = 0;
-    for (const lap of Object.values(compare.laps)) {
-      const d = lap.series.dist;
-      if (d && d.length > 0) m = Math.max(m, d[d.length - 1]);
-    }
-    return m;
-  }, [compare]);
-
-  const SECTORS: [string, number, number][] = [
-    ["Full", 0, 1],
-    ["S1", 0, 0.33],
-    ["S2", 0.33, 0.66],
-    ["S3", 0.66, 1],
-  ];
 
   if (sessions == null) {
     // Failed fetch would otherwise leave the skeleton up forever.
@@ -938,36 +1063,40 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             <span className="section-header">
               Race line{bestTrack ? ` — ${bestTrack}` : ""}
             </span>
-            <span className="flex flex-wrap gap-3 text-[10.5px] text-ink-dim">
-              <span>
-                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-throttle align-middle" />
-                throttle
+            <Tip content="How the reference line and the lap strip are coloured: by pedal (throttle, brake, coast), by speed, or by where the compared lap gains and loses time against the reference">
+              <span className="inline-flex">
+                <SegmentedControl
+                  ariaLabel="Map colouring"
+                  size="sm"
+                  value={mapLens}
+                  onValueChange={setMapLens}
+                  options={LENS_OPTIONS}
+                />
               </span>
-              <span>
-                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-brake align-middle" />
-                brake
-              </span>
-              <span>
-                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-coast align-middle" />
-                coast
-              </span>
-              {outline && (
-                <span>
-                  <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-ink-dim align-middle" />
-                  surveyed borders
+            </Tip>
+            <span className="flex flex-wrap gap-3 text-[10.5px] text-ink-dim [&>span]:whitespace-nowrap">
+              {(lensData?.legend ?? []).map((entry) => (
+                <span key={entry.label} className="inline-flex items-center gap-1.5">
+                  <i className="inline-block h-0.5 w-3.5" style={{ backgroundColor: entry.color }} />
+                  {entry.label}
                 </span>
-              )}
+              ))}
+              {mapKey.map((entry) => (
+                <span
+                  key={entry.label}
+                  className="inline-flex items-center gap-1.5 text-ink-faint"
+                  title={entry.title}
+                >
+                  {entry.glyph === "pin" ? (
+                    <i className="inline-block h-2 w-2 rotate-45 rounded-full rounded-br-none bg-ink-dim" />
+                  ) : (
+                    <span style={{ color: entry.color ?? "var(--color-ink)" }}>{entry.glyph}</span>
+                  )}
+                  {entry.label}
+                </span>
+              ))}
             </span>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-              <Tip content="Drag across a chart to zoom · double-click to reset">
-                <span className="mr-1.5 font-tabular text-[10.5px] text-ink-faint">
-                  {zoomRange
-                    ? `${zoomRange[0].toFixed(0)}–${zoomRange[1].toFixed(0)} m`
-                    : maxDist > 0
-                      ? `0–${maxDist.toFixed(0)} m`
-                      : "full lap"}
-                </span>
-              </Tip>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
               {/* Only meaningful with something to sync against. */}
               {mapLaps.length > 1 && (
                 <Tip content="Where the other laps' cars are drawn: where each was after the same lap time as the reference (time — the gap, as distance on track), or level with the reference car (position — where the charts compare them)">
@@ -986,27 +1115,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   </span>
                 </Tip>
               )}
-              {mapLayerToggles.map(({ key, label, tip }) => (
-                <Tip key={key} content={tip}>
-                  <button
-                    onClick={() => setMapLayer(key, !mapLayers[key])}
-                    aria-pressed={mapLayers[key]}
-                    className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
-                      mapLayers[key]
-                        ? "border-accent bg-accent/14 text-accent-300"
-                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                </Tip>
-              ))}
-              {mapLayerToggles.length > 0 && <span className="mx-1 h-3.5 w-px bg-edge" />}
+              <LayersMenu layers={mapLayers} available={availableLayers} onToggle={setMapLayer} />
               <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
                 <button
                   onClick={() => setMapFollow(!mapFollow)}
                   aria-pressed={mapFollow}
-                  className={`mr-1 rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                  className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
                     mapFollow
                       ? "border-accent bg-accent/14 text-accent-300"
                       : "border-edge text-ink-dim hover:border-accent hover:text-accent"
@@ -1015,32 +1129,15 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   Follow
                 </button>
               </Tip>
-              {SECTORS.map(([label, a, b]) => {
-                // "Full" is the null range; the others compare against the
-                // window they would set, so the active button survives a
-                // round-trip through the charts.
-                const isFull = a === 0 && b === 1;
-                const range: [number, number] = [maxDist * a, maxDist * b];
-                const on = isFull
-                  ? zoomRange == null
-                  : zoomRange != null &&
-                    Math.abs(zoomRange[0] - range[0]) < 1 &&
-                    Math.abs(zoomRange[1] - range[1]) < 1;
-                return (
-                  <button
-                    key={label}
-                    onClick={() => setZoomRange(isFull ? null : range)}
-                    aria-pressed={on}
-                    className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
-                      on
-                        ? "border-accent bg-accent/14 text-accent-300"
-                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+              <Tip content="Open the map full screen">
+                <button
+                  onClick={() => setMapMaximized(true)}
+                  aria-label="Maximize the race line map"
+                  className="rounded border border-edge px-[7px] py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
+                >
+                  ⤢
+                </button>
+              </Tip>
             </div>
           </div>
           <RaceLineMap
@@ -1051,10 +1148,34 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             brakeMarks={brakeMarks}
             laps={mapLaps}
             cursorDist={cursorDist}
-            zoomRange={zoomRange}
+            zoomRange={shownZoom}
+            animate={liveZoom == null}
             outline={outline}
             onZoomChange={setZoomRange}
+            onCursorDist={onHoverCursorDist}
+            lens={lensData}
+            corners={refCorners}
+            focusId={focusLap?.id ?? null}
+            units={units}
+            maximized={mapMaximized}
+            onMaximizedChange={setMapMaximized}
           />
+          {/* The lap strip: the line unrolled, with the track's sectors and
+              the corners on it, and the zoom window to drag about. */}
+          <div className="border-t border-hairline px-4 pb-1 pt-2">
+            <LapStrip
+              length={maxDist}
+              runs={stripRuns}
+              sectors={sectors}
+              corners={refCorners}
+              zoomRange={shownZoom}
+              onZoomChange={setZoomRange}
+              onLiveZoom={setLiveZoom}
+              cursorDist={cursorDist}
+              onCursorDist={onHoverCursorDist}
+              units={units}
+            />
+          </div>
         </div>
       )}
 
@@ -1072,8 +1193,48 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             />
           )}
 
-          {/* 5 — chart stack */}
-          <div className="panel px-4 py-3">
+          {/* 5 — chart stack, with a compact copy of the lap strip pinned
+              over it: with every channel on, the zoom stays in reach while
+              the stack scrolls. */}
+          <div className="panel px-4 pb-3">
+            {refEntry && (
+              <div className="sticky top-0 z-[5] -mx-4 mb-1 rounded-t-panel border-b border-hairline bg-panel px-4 pb-0.5 pt-2">
+                <div className="flex flex-wrap items-baseline gap-2.5 text-[11px]">
+                  <span className="section-header">Channels · {channelKeys.length}</span>
+                  <span className="text-ink-soft">{zoomLabel}</span>
+                  <span className="font-tabular text-ink-faint">{zoomText}</span>
+                  {shownZoom && (
+                    <button
+                      onClick={() => setZoomRange(null)}
+                      className="rounded border border-edge px-2 text-[10.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+                    >
+                      Full lap
+                    </button>
+                  )}
+                  <span className="ml-auto flex flex-wrap gap-3 font-tabular text-[10.5px] text-ink-dim">
+                    {mapLaps.map((lap) => (
+                      <span key={lap.id} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <i className="inline-block h-0.5 w-3.5" style={{ backgroundColor: lap.color }} />
+                        {lap.label}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+                <LapStrip
+                  compact
+                  length={maxDist}
+                  runs={stripRuns}
+                  sectors={sectors}
+                  corners={refCorners}
+                  zoomRange={shownZoom}
+                  onZoomChange={setZoomRange}
+                  onLiveZoom={setLiveZoom}
+                  cursorDist={cursorDist}
+                  onCursorDist={onHoverCursorDist}
+                  units={units}
+                />
+              </div>
+            )}
             <StackedCharts
               data={compare}
               lapLabels={lapLabels}
@@ -1218,8 +1379,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               notes={coaching.laps}
               selected={selected}
               lapColors={lapColors}
-              corners={refEntry?.corners ?? []}
+              corners={refCorners}
               onZoom={setZoomRange}
+            />
+          </Panel>
+        )}
+        {sectorTimes && sectorTimes.laps.some((lap) => lap.splits_ms != null) && (
+          <Panel title="Sector times" meta={sectorNote(sectorTimes)}>
+            <SectorTimes
+              data={sectorTimes}
+              lapColors={lapColors}
+              selected={selected}
+              refLapId={refLap}
             />
           </Panel>
         )}
@@ -1245,16 +1416,31 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
       {/* The corner report is a wide table — it gets the full width rather
           than a 300px grid cell. */}
-      {reportLaps.length > 0 && refEntry?.corners && refEntry.corners.length > 0 && (
-        <Panel title="Corner report card">
+      {reportLaps.length > 0 && refCorners.length > 0 && (
+        <Panel
+          title="Corner report card"
+          actions={
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
+              sort
+              <SegmentedControl
+                ariaLabel="Sort corners"
+                size="sm"
+                value={reportSort}
+                onValueChange={setReportSort}
+                options={REPORT_SORT_OPTIONS}
+              />
+            </span>
+          }
+        >
           <CornerReport
-            corners={refEntry.corners}
+            corners={refCorners}
             laps={reportLaps}
             units={units}
             focusId={reportFocusId}
             onFocusChange={setReportFocusId}
             onZoom={setZoomRange}
             onHoverCorner={setHoverCorner}
+            sort={reportSort}
           />
         </Panel>
       )}
@@ -1403,12 +1589,26 @@ function CategoryBestRow({
 }
 
 // One card in the bottom grid: a section header over whatever the panel
-// draws. The header is the only chrome — the panel's hairline ring separates
-// it from its neighbours.
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+// draws, with room on the right for a note or a control. The header is the
+// only chrome — the panel's hairline ring separates it from its neighbours.
+function Panel({
+  title,
+  meta,
+  actions,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="panel min-w-0">
-      <div className="section-header px-3.5 py-2.5">{title}</div>
+      <div className="flex flex-wrap items-center gap-2.5 px-3.5 py-2">
+        <span className="section-header">{title}</span>
+        {meta && <span className="ml-auto text-[10px] text-ink-faint">{meta}</span>}
+        {actions && <span className="ml-auto">{actions}</span>}
+      </div>
       <div className="rule" />
       {children}
     </div>

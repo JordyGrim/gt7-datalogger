@@ -10,8 +10,70 @@
 import { positionAtDist } from "@/lib/playback";
 import type { CompareLapEntry, EventType, LapEvent, Samples } from "@/lib/types";
 
-export type MapLayerKey = "events" | "tcs" | "asm";
+// Everything the map can draw besides the reference line itself, each with
+// a switch in the Layers menu. Grouped the way the menu lists them.
+export type MapLayerKey =
+  | "road"
+  | "numbers"
+  | "others"
+  | "apex"
+  | "brakes"
+  | "peaks"
+  | "kerbs"
+  | "events"
+  | "tcs"
+  | "asm";
 export type MapLayers = Record<MapLayerKey, boolean>;
+
+export interface MapLayerDef {
+  key: MapLayerKey;
+  label: string;
+  help: string;
+}
+
+export const MAP_LAYER_GROUPS: { title: string; layers: MapLayerDef[] }[] = [
+  {
+    title: "Track",
+    layers: [
+      { key: "road", label: "Surveyed road", help: "Road fill and borders" },
+      { key: "numbers", label: "Corner numbers", help: "Click one to zoom to it" },
+    ],
+  },
+  {
+    title: "Laps",
+    layers: [
+      { key: "others", label: "Other laps", help: "Thin until you zoom in" },
+      { key: "apex", label: "Apex speeds", help: "Min speed per lap, when zoomed" },
+      { key: "brakes", label: "Brake points", help: "Where each lap braked, per corner" },
+    ],
+  },
+  {
+    title: "Markers",
+    layers: [
+      { key: "peaks", label: "Peaks & valleys", help: "Speed maxima ▲ and minima ▼" },
+      { key: "kerbs", label: "Kerbs & off-track", help: "Where wheels touched kerb or grass" },
+      { key: "events", label: "Events", help: "Lockups, wheelspin, bottoming" },
+      { key: "tcs", label: "TCS", help: "Ring where traction control cut power" },
+      { key: "asm", label: "ASM", help: "Ring where stability management stepped in" },
+    ],
+  },
+];
+
+// Everything on except the coaching marks, which are the busiest and are
+// a click away: a map that opens clean reads at a glance, and the markers
+// come back when they are wanted.
+export const DEFAULT_MAP_LAYERS: MapLayers = {
+  road: true,
+  numbers: true,
+  others: true,
+  apex: true,
+  brakes: true,
+  peaks: true,
+  kerbs: true,
+  events: false,
+  tcs: false,
+  asm: false,
+};
 
 export const EVENT_LABELS: Record<EventType, string> = {
   lockup: "Lockup",

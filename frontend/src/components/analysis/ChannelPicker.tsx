@@ -46,7 +46,11 @@ export function ChannelPicker({
       if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      // Esc closes the menu and nothing else: the view's own Esc, which
+      // resets the zoom, listens on the window and never hears this one.
+      e.stopPropagation();
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);

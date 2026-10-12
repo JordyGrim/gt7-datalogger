@@ -297,7 +297,7 @@ async def test_sweep_uploads_the_document_now_and_once(sync, fake, tmp_path) -> 
     assert body["format"] == track_bundle.BUNDLE_FORMAT
     assert body["meta"]["official"]["official_id"] == "ring-gp"
     assert set(body) == {"format", "version", "meta", "edges", "finish_crossings",
-                         "corners", "sections"}
+                         "corners", "sections", "sectors"}
 
     status = sync.tracks.track_status(slug)
     assert status["status"] == "synced"
@@ -772,3 +772,85 @@ async def test_push_and_overview_carry_sync_status(client, fake) -> None:
     # ...and deleting it forgets it.
     await c.delete("/api/track-bundles/loop")
     assert service.sync.tracks.track_status("loop") == {"status": "unknown"}
+
+
+# --- sector boundaries and a server that learns them (#22) ---------------------
+
+
+def _place_sectors(tmp_path, track="Ring") -> None:
+    track_bundle.set_authored(tmp_path, track, sectors=[
+        {"n": 1, "name": "", "end": {"x": 2.0, "z": 0.0}},
+        {"n": 2, "name": "", "end": {"x": 4.0, "z": 0.0}},
+    ])
+
+
+async def test_sectors_go_up_but_do_not_count_until_the_server_keeps_them(
+    sync, fake, tmp_path,
+) -> None:
+    """An older service drops the key, so a change to the sectors alone is
+    not a change it would see — and the digest says so."""
+    slug = _bundle(tmp_path)
+    _place_sectors(tmp_path)
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 1
+    body = json.loads(fake.uploads[0].content)
+    assert [s["n"] for s in body["sectors"]] == [1, 2]  # sent regardless
+
+    # Moving a boundary changes nothing the server keeps.
+    track_bundle.set_authored(tmp_path, "Ring", sectors=[
+        {"n": 1, "name": "", "end": {"x": 3.0, "z": 0.0}},
+    ])
+    sync.tracks.changed("Ring")
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 1
+    assert sync.tracks.track_status(slug)["status"] == "synced"
+
+
+async def test_a_server_that_starts_keeping_sectors_gets_them_once(sync, fake, tmp_path) -> None:
+    """The day the service learns the key, every bundle WITH sectors is sent
+    again; one without them is not."""
+    with_sectors = _bundle(tmp_path, track="Ring")
+    without = _bundle(tmp_path, track="Oval")
+    _place_sectors(tmp_path, "Ring")
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 2
+
+    fake.types = {"tracks": {"max_sectors": 20}}
+    await sync.refresh_capabilities()
+    sync.clock.now += 3600  # past the once-a-minute pacing
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    sent = [json.loads(r.content)["meta"]["track"] for r in fake.uploads[2:]]
+    assert sent == ["Ring"]
+    assert sync.tracks.track_status(with_sectors)["status"] == "synced"
+    assert sync.tracks.track_status(without)["status"] == "synced"
+
+    # And once accepted, a moved boundary is a change again.
+    track_bundle.set_authored(tmp_path, "Ring", sectors=[
+        {"n": 1, "name": "", "end": {"x": 3.0, "z": 0.0}},
+    ])
+    sync.tracks.changed("Ring")
+    sync.clock.now += 3600
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 4
+
+
+def test_the_digest_of_a_bundle_without_sectors_is_what_it_always_was() -> None:
+    """An upgrade must not re-send every bundle: a document whose `sectors`
+    is empty digests exactly like one from a build that had no such key."""
+    doc = {"format": track_bundle.BUNDLE_FORMAT, "version": 5,
+           "meta": {"track": "Ring", "runs": 1, "source_runs": {"abc123": 1},
+                    "updated_at": "now", "official": None},
+           "edges": [], "finish_crossings": [], "corners": [], "sections": []}
+    before = tracks_sync.digest(doc)
+    _, with_key = tracks_sync._serialise({**doc, "sectors": []}, keep_sectors=True)
+    _, dropped = tracks_sync._serialise(
+        {**doc, "sectors": [{"n": 1, "name": "", "end": {"x": 1.0, "z": 0.0}}]},
+        keep_sectors=False,
+    )
+    assert with_key == before
+    assert dropped == before

@@ -1,10 +1,12 @@
 // Corner report card (#21): "where am I actually losing the lap", answered
-// per corner and sorted by time lost. Every lap is measured through the
-// REFERENCE lap's corner windows (the backend's corner_report), so the Δ
-// column is the same comparison the delta chart makes — just summed corner by
-// corner instead of drawn along distance. Clicking a row zooms the charts and
-// map to that corner, using the map's own corner-window convention so its
-// corner bar lights up in agreement.
+// per corner. Every lap is measured through the REFERENCE lap's corner
+// windows (the backend's corner_report), so the Δ column is the same
+// comparison the delta chart makes — just summed corner by corner instead of
+// drawn along distance. Read in track order by default, which is how a lap
+// is remembered; sorted by time lost on request, which is where it was lost.
+// Clicking a row zooms the charts and map to that corner, using the shared
+// corner-window convention so the map and the lap strip light up in
+// agreement.
 //
 // Beside the speeds and the time, each corner says how it was braked for
 // (#110) — where the brake went on against the reference, how hard, for how
@@ -13,8 +15,8 @@
 // defines a braking point. Hovering a row marks the brake points on the map.
 
 import { useMemo } from "react";
-import { cornerRange } from "@/components/analysis/RaceLineMap";
 import { Tip } from "@/components/ui/Tooltip";
+import { cornerRange } from "@/lib/cornerZoom";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
 import { brakeDeltaText } from "@/lib/mapLayers";
 import type { Corner, CornerReportRow } from "@/lib/types";
@@ -26,6 +28,14 @@ export interface ReportLap {
   isRef: boolean;
   report: CornerReportRow[];
 }
+
+/** Row order: the circuit's (T1, T2 …) or the biggest loss first. */
+export type ReportSort = "track" | "lost";
+
+export const REPORT_SORT_OPTIONS: { value: ReportSort; label: string }[] = [
+  { value: "track", label: "Track order" },
+  { value: "lost", label: "Time lost" },
+];
 
 // A brake point this close to the reference's is the same brake point: the
 // floor the race engineer puts under what it will mention
@@ -64,6 +74,7 @@ export function CornerReport({
   onFocusChange,
   onZoom,
   onHoverCorner,
+  sort = "track",
 }: {
   corners: Corner[];
   laps: ReportLap[];
@@ -74,6 +85,7 @@ export function CornerReport({
   onZoom?: (range: [number, number]) => void;
   /** The corner under the pointer, or null once it has left the table. */
   onHoverCorner?: (n: number | null) => void;
+  sort?: ReportSort;
 }) {
   const ref = laps.find((l) => l.isRef) ?? null;
   const candidates = laps.filter((l) => !l.isRef && l.report.length > 0);
@@ -94,8 +106,9 @@ export function CornerReport({
         lost: base && focus.id !== ref?.id ? r.time_ms - base.time_ms : null,
       };
     });
-    // The point of the card: the biggest loss first. Rows without a Δ (no
-    // reference coverage, or the ref-only case) keep track order below.
+    if (sort === "track") return built.sort((a, b) => a.row.n - b.row.n);
+    // Biggest loss first. Rows without a Δ (no reference coverage, or the
+    // ref-only case) keep track order below.
     return built.sort((a, b) =>
       a.lost != null && b.lost != null
         ? b.lost - a.lost
@@ -105,7 +118,7 @@ export function CornerReport({
             ? 1
             : a.row.n - b.row.n,
     );
-  }, [focus, ref, corners]);
+  }, [focus, ref, corners, sort]);
 
   if (!focus || rows.length === 0) return null;
   const comparing = focus.id !== ref?.id;
@@ -320,7 +333,8 @@ export function CornerReport({
       </div>
       <div className="px-2 pb-1 pt-0.5 text-[10px] text-ink-dim">
         Speeds in {speedUnit(units)}
-        {hasDelta && ", small figures = ref · sorted by time lost"}
+        {comparing && ", small figures = ref"}
+        {hasDelta && sort === "lost" ? " · biggest loss first" : " · in track order"}
         {hasBraking && onHoverCorner && " · hover a row to mark the brake points on the map"}
       </div>
     </div>

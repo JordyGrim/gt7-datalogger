@@ -58,10 +58,13 @@ line itself, not the last whole 5 m before it.
 - **Synced cursors** — hover any panel and a crosshair appears at the same distance in
   every panel, on the race line map, and in the Corner Detail widget. The tooltip shows
   one column per lap, unit-formatted.
-- **Zoom** — drag across any chart to zoom a section; every panel, the map, and the
-  deviation chart crop to it. Double-click to reset, or use the **S1 / S2 / S3** buttons
-  to jump to thirds of the lap. (Mouse-wheel zoom is off on purpose so page scrolling
-  stays normal.)
+- **Zoom** — drag across any chart to zoom a section; every panel, the map, the
+  [lap strip](#lap-strip) and the deviation chart crop to it. The strip's **S1…Sn**
+  buttons jump to the track's sectors, `[` and `]` step through the corners, and
+  **Esc**, a double-click or **Full lap** reset. A compact copy of the strip stays
+  pinned over the charts as they scroll, so the zoom is always in reach with all 31
+  channels on. (Mouse-wheel zoom is off on the charts on purpose so page scrolling
+  stays normal; on the map, ⌘/Ctrl + wheel zooms.)
 - **Event shading** — detected [chassis events](../internals/event-detection.md) shade
   the panel that explains them: lockups on Brake, wheelspin on Throttle,
   bottoming/kerbs on suspension panels; TCS activity shades Throttle, ASM shades Speed.
@@ -100,9 +103,10 @@ Details worth knowing:
 Below the charts, one row per corner: entry / minimum / exit speed and the time spent
 between the corner's entry and exit, for the focused lap with the reference's figures in
 small type beside it. The **Δ s** column is the time lost (red) or gained (green) through
-that corner vs the reference — and the table is **sorted by it**, so the first row is
-where the lap is actually being lost. The footer sums it: your total gap that happened
-inside corners rather than on the straights.
+that corner vs the reference. Rows are in **track order** (T1, T2 …), which is how a lap
+is remembered; the **sort** switch in the header puts the **biggest loss first** instead,
+so the first row is where the lap is actually being lost. The footer sums it: your total
+gap that happened inside corners rather than on the straights.
 
 Every lap is measured through the *reference lap's* corner windows (the same
 distance-from-start convention as the time-diff chart), so the times are comparable;
@@ -219,13 +223,39 @@ default nine-panel stack. Laps recorded before a channel existed simply skip tha
     need the `~` packet format or wider — see
     [Configuration](../getting-started/configuration.md).
 
+## Sector times
+
+Every lap of the session, split at the circuit's sectors, one row per lap in lap order.
+The best of each sector and the best lap time are purple, counting only laps that count
+toward bests; a pit out-lap is listed faint and holds no best. Sector times are read off
+each lap's own clock where it passed the boundary, and the last sector takes whatever is
+left of the lap time, so the splits add up to the figure GT7 showed.
+
+The boundaries are **the track's own** when they have been placed — on the Tracks page,
+beside the [corners](tracks-view.md#labelling-corners): each one is where a sector ends,
+and the last sector runs to the start/finish line. A circuit without them is split into
+**thirds of the lap**, which is what S1/S2/S3 always meant here; the panel's note says
+which. Either way the boundaries are *places on the road*: on a circuit without its own,
+the thirds are taken from the session's quickest lap and then found on every other lap,
+so that a wider line through a corner does not move the split. A lap that never passed a
+boundary (a cut, or another layout under the same name) shows no sector times.
+
 ## Race line map
 
-A top-down plot of the reference lap's driven line, colored by input zone — green =
-throttle, red = braking, blue = coasting — with ▲ speed peaks and ▼ valleys marked.
-Other selected laps overlay as colored lines. It follows the chart cursor, placing one
-dot per lap at the hovered distance so you can see the spatial gap between lines, and it
-auto-crops when you zoom a section.
+A top-down plot of the reference lap's driven line, coloured by the **lens** picked in
+the panel header:
+
+- **Inputs** (the default): green = throttle, red = braking, blue = coasting.
+- **Speed**: five bands from the lap's slowest to its fastest, red through amber to
+  green, with the band edges in the key.
+- **Gain / loss**: where the [report card's](#corner-report-card) lap is gaining time on
+  the reference (green) and where it is losing it (red), read off the slope of the time
+  diff over a 30 m window; grey where it is holding even. Needs a comparison lap.
+
+The [lap strip](#lap-strip) under the map is coloured the same way — the line unrolled.
+Other selected laps overlay as thin lines in their chart colours. The map follows the
+chart cursor, placing one dot per lap at the hovered distance so you can see the spatial
+gap between lines; hovering the line on the map moves the cursor everywhere else too.
 
 A metre across is a metre down, so a corner's shape on screen is its shape on the track.
 The axis ranges follow the plotting area's pixel aspect to keep it that way in any
@@ -267,11 +297,35 @@ that started at the line.
 Dots and the Follow camera are placed at the exact cursor position, between the
 recorded 5 m steps, so the camera pans smoothly during playback.
 
-### Events and driver aids
+### Zooming the map
 
-Two layers sit on top of the lines, each with a toggle in the map header. A toggle only
-appears when the selected laps have something to put on it, and both choices are
-remembered on this device.
+Everything shares one zoom window, so the map, the strip, the charts and the deviation
+chart always show the same stretch. On the map itself:
+
+- **Click a corner number** to zoom to that corner, from where the reference began
+  braking for it (30 m before, or before the turn-in on a corner it did not brake for) to
+  40 m past the exit. `[` and `]` step through the corners and wrap.
+- **Drag along the line** to zoom to that stretch, padded 15 m either side. A translucent
+  band shows the pick while you drag.
+- **⌘/Ctrl + wheel** zooms about the pointer, ×0.8 or ×1.25 a notch and never narrower
+  than 80 m. A plain wheel still scrolls the page.
+- **Double-click**, **Esc** or **Full lap** come back out. Esc closes an open menu first.
+
+Zoomed in, the stretch is drawn thicker over the whole lap in faint grey, a **locator
+inset** in the top left shows where on the lap it is (click it to come back out), each
+corner in view carries an **apex badge** with the minimum speed of every lap through it in
+lap colours, and when the window is a corner a **callout** in the bottom left says what the
+report card's lap did there against the reference — the time lost or gained and where it
+braked. The window animates into place.
+
+### Layers
+
+Everything besides the reference line is a layer with a switch in the **Layers** menu,
+listed only when the selected laps have something to put on it; the choices are remembered
+on this device. **Track**: the surveyed road, the corner numbers. **Laps**: the other
+laps, their apex speeds, their brake points. **Markers**: ▲ speed peaks and ▼ valleys,
+kerb and off-track contact, chassis events, TCS and ASM rings. Events and the aid rings
+start off; everything else starts on.
 
 - **Events** marks where each detected [chassis event](../internals/event-detection.md)
   *began*: ◆ lockup, ● wheelspin, ✚ bottoming, ✖ kerb strike. Markers are filled with
@@ -287,8 +341,9 @@ remembered on this device.
   next without the lap getting slower say TCS can come down a step. **ASM** does the
   same for stability management with hollow squares, and starts switched off.
 
-Both layers follow the zoom, and the key under the map lists only what is drawn in the
-current window. Laps recorded before per-corner channels existed have neither.
+Every layer follows the zoom, and the key in the panel header lists only what is drawn
+in the current window. Laps recorded before per-corner channels existed have no events
+and no aid rings.
 
 ### Brake points
 
@@ -300,17 +355,37 @@ there. Hover a pin for how many metres earlier or later than the reference it is
 that took the corner without braking has no pin. The map's frame widens to take in the
 pins of the corner it is showing: a braking zone begins well before the corner itself.
 
+### Lap strip
+
+The bar under the map is the whole lap unrolled, coloured by the active lens, with the
+track's sectors as **S1…Sn** buttons above it and the corner numbers under it at their
+apex. The zoom window is drawn on it and driven from it:
+
+- **Drag on empty bar** to pick a new stretch.
+- **Drag an edge** of the window to resize it (never narrower than 40 m).
+- **Drag inside** the window to slide it along the lap.
+- **Click** (without dragging) to zoom to the corner under the pointer; click a sector
+  button to zoom to that sector.
+
+The row beneath it names the window — `T5 · left · 94 km/h min`, `Custom stretch` or
+`Full lap` — with its range in metres, `‹` `›` to step through the corners, and **Full
+lap** when zoomed. A compact copy of the strip is pinned at the top of the charts panel
+and takes the same gestures, with the channel count, the window and the lap key beside it,
+so with every channel on the zoom stays in reach while the charts scroll.
+
+The sectors are the circuit's own when it has
+[boundaries placed](tracks-view.md#labelling-corners), otherwise thirds of the lap; see
+[Sector times](#sector-times). The corners come from the reference lap's curvature, or
+from the circuit's [authored corners](tracks-view.md#labelling-corners) when it has them —
+in which case the numbering is the same in every session, not just within this one.
+
 ### Corners
 
-The corner strip under the map is the fast way around a lap: **click a number** — or the
-numbered circle on the map itself — and everything zooms to that corner, charts included,
-with the braking zone into it and the exit out of it for context. `‹` `›` step through
-them and wrap; **lap** goes back to the whole circuit. The selected corner is named
-beside the strip (`T5 · left`).
-
-The corners come from the reference lap's curvature, or from the circuit's
-[authored corners](tracks-view.md#labelling-corners) when it has them — in which case the
-numbering is the same in every session, not just within this one.
+Corner numbers sit just outside each apex on the map, the current one lit in the accent
+colour, and under the strip; clicking either zooms to that corner — see
+[Zooming the map](#zooming-the-map). In the full-screen view a corner strip under the map
+lists them as chips with `‹` `›` and **lap** for the whole circuit, and names the selected
+one (`T5 · left · 94 km/h · 63°`).
 
 ### Full screen
 

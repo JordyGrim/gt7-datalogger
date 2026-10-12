@@ -192,8 +192,20 @@ still, and hand-labelled corners do.
 Click **Place corners** and work around the map from the first corner after
 the start line, then name them. Per corner you can optionally mark turn-in
 (**entry**) and **exit**, and set the direction. **Sections** below the corner
-list mark named stretches — the input real sectors need, since GT7 broadcasts
-none.
+list mark named stretches (straights, mostly) that the lap analysis document
+times. **Sectors** below them are where each sector *ends*, in track order —
+click **Add**, then click the map on the split line; the last sector runs to
+the start/finish line, so two boundaries make three sectors. GT7 broadcasts
+none, so these are what the [sector times](analysis-view.md#sector-times) in
+Analysis are read off; a circuit without them is split into thirds of the lap.
+
+The quicker way is **From splits…**: some race screens show each
+sector's time as the lap is driven, and a lap then says where its sectors end.
+Pick one of your laps at the circuit, type each sector's time as the game
+showed it (`0:25.123`, or just `25.123`; the last sector is not typed — it is
+what is left of the lap), and **Place boundaries** puts each one where that
+lap was at that moment, to within a tick of the game's clock. Check the map,
+then **Save**.
 
 Corners are stored **in the bundle**, not the database: they are knowledge
 about the circuit, so they travel with export and import, and they are a large
@@ -253,7 +265,8 @@ carries a chip saying where it stands (the table's **Sync** column, and the
 checklist's **Sync** line).
 
 What goes up is **your own evidence**: the votes this installation cast,
-with the corner labels, sections, finish crossings and confirmed layout.
+with the corner labels, sections, sector boundaries, finish crossings and
+confirmed layout.
 Evidence you pulled from the repo or imported from a friend's file stays in
 your bundle and never leaves with an upload — the service files every
 installation under one account and refuses a document that names somebody

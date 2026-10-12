@@ -14,6 +14,7 @@
 import {
   AIDS_ASM,
   AIDS_TCS,
+  DEFAULT_MAP_LAYERS,
   RaceLineMap,
   brakeMarkers,
   cornerRange,
@@ -47,7 +48,8 @@ const LAPS: MapLap[] = IDS.map((id) => ({
 const HAS_TCS = LAPS.some((lap) => hasAid(lap.entry.series, AIDS_TCS));
 const HAS_ASM = LAPS.some((lap) => hasAid(lap.entry.series, AIDS_ASM));
 
-const NO_LAYERS: MapLayers = { events: false, tcs: false, asm: false };
+// The marker layers alone, on the default set for everything else.
+const NO_LAYERS: MapLayers = { ...DEFAULT_MAP_LAYERS, events: false, tcs: false, asm: false };
 const EVENTS: MapLayers = { ...NO_LAYERS, events: true };
 const AIDS: MapLayers = { ...NO_LAYERS, tcs: HAS_TCS, asm: HAS_ASM };
 

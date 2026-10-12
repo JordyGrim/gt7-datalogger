@@ -262,6 +262,7 @@ export interface TrackBundleInfo {
   manual_points: number;
   corners: number;
   sections: number;
+  sectors?: number; // sector boundaries (#22); absent from a server without them
   sources: number; // installations whose evidence is in this bundle
   official: OfficialMatch | null;
   source_runs: Record<string, number>;
@@ -299,6 +300,15 @@ export interface AuthoredSection {
   n: number;
   name: string;
   start: { x: number; z: number };
+  end: { x: number; z: number };
+}
+
+// One sector boundary (#22): where sector `n` ends and `n + 1` begins, as a
+// position on the circuit. Two boundaries make three sectors; the last runs
+// to the start/finish line.
+export interface AuthoredSector {
+  n: number;
+  name: string;
   end: { x: number; z: number };
 }
 
@@ -564,6 +574,37 @@ export interface Corner {
   angle_deg: number;
   name?: string;
   authored?: boolean;
+  // Where the reference lap's brake went on for this corner, from its
+  // corner_report (#110). Filled in by the Analysis view: a corner's zoom
+  // window starts 30 m before it, so that the braking zone is in view.
+  brake_on?: number | null;
+}
+
+// A sector of the reference lap (#22): the circuit's own when it has
+// boundaries authored (`authored: true`), else a third of the lap.
+export interface Sector {
+  n: number;
+  name: string;
+  start_dist: number;
+  end_dist: number;
+  authored: boolean;
+}
+
+// Every lap of a session split at the same sector boundaries (#22).
+// `splits_ms` is null on a lap that has no sector times: it never passed a
+// boundary (a cut, another layout) or has no lap time.
+export interface SectorTimes {
+  session_id: number;
+  source: "track" | "thirds" | "none";
+  sectors: { n: number; name: string }[];
+  laps: {
+    id: number;
+    number: number;
+    time_ms: number;
+    counts_for_best: boolean;
+    reference: boolean;
+    splits_ms: number[] | null;
+  }[];
 }
 
 // One accelerometer axis, checked against physics the recording already
@@ -633,6 +674,7 @@ export interface CompareLapEntry {
   events?: LapEvent[];
   delta?: { dist: number[]; delta_ms: number[] };
   corners?: Corner[]; // reference lap only
+  sectors?: Sector[]; // reference lap only
   corner_report?: CornerReportRow[]; // every lap, on the reference's corners
   gg?: GGExtremes; // peaks from the raw ticks, not the resampled series
 }

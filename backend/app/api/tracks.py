@@ -953,10 +953,11 @@ async def delete_corrections(request: Request, slug: str) -> dict[str, str]:
 
 
 class AuthoredPayload(BaseModel):
-    """Hand-labelled corners/sections. Omitted lists are left untouched."""
+    """Hand-labelled corners/sections/sectors. Omitted lists are left untouched."""
 
     corners: list[dict[str, Any]] | None = None
     sections: list[dict[str, Any]] | None = None
+    sectors: list[dict[str, Any]] | None = None
 
 
 @router.get("/track-bundles/{slug}/corners")
@@ -968,6 +969,7 @@ async def get_corners(request: Request, slug: str) -> dict[str, Any]:
         "track": doc["meta"]["track"],
         "corners": doc["corners"],
         "sections": doc["sections"],
+        "sectors": doc["sectors"],
         "official": doc["meta"]["official"],
         "finish_crossings": doc["finish_crossings"],
     }
@@ -997,20 +999,27 @@ async def put_corners(
             None if payload.sections is None
             else [track_bundle.validate_section(s, i) for i, s in enumerate(payload.sections)]
         )
+        sectors = (
+            None if payload.sectors is None
+            else [track_bundle.validate_sector(s, i) for i, s in enumerate(payload.sectors)]
+        )
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
     if corners is not None and len(corners) > track_bundle.MAX_CORNERS:
         raise HTTPException(400, f"at most {track_bundle.MAX_CORNERS} corners")
     if sections is not None and len(sections) > track_bundle.MAX_SECTIONS:
         raise HTTPException(400, f"at most {track_bundle.MAX_SECTIONS} sections")
+    if sectors is not None and len(sectors) > track_bundle.MAX_SECTORS:
+        raise HTTPException(400, f"at most {track_bundle.MAX_SECTORS} sector boundaries")
     doc = track_bundle.set_authored(
-        directory, existing["meta"]["track"], corners=corners, sections=sections
+        directory, existing["meta"]["track"],
+        corners=corners, sections=sections, sectors=sectors,
     )
     if doc is None:  # pragma: no cover - load succeeded a line ago
         raise HTTPException(404, "no bundle for this track")
     _bundle_changed(request, existing["meta"]["track"], road=False)
     return {"track": doc["meta"]["track"], "corners": doc["corners"],
-            "sections": doc["sections"]}
+            "sections": doc["sections"], "sectors": doc["sectors"]}
 
 
 @router.post("/track-bundles/{slug}/rejudge", dependencies=[Depends(require_admin)])

@@ -4,7 +4,7 @@
 // newest first; a finding that names a corner zooms the charts and map to it
 // on click, using the same corner-window convention as everything else.
 
-import { cornerRange } from "@/components/analysis/RaceLineMap";
+import { cornerRange } from "@/lib/cornerZoom";
 import type { CoachingLapNotes, Corner } from "@/lib/types";
 
 // One glyph per finding family, so the list scans without reading every line.

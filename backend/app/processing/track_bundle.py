@@ -51,6 +51,14 @@ rather than in the DB because they are a property of the circuit, they
 should travel with export/import, and they are a large part of what makes a
 shared bundle worth pulling.
 
+**Sectors** (#22) are authored the same way, as an optional key a v5 document
+may carry: each record is one sector boundary — the position where sector
+`n` ends and `n + 1` begins — so two records make three sectors, the last of
+which runs to the start/finish line. GT7 broadcasts no sector splits; the
+boundaries are hand-placed on the surveyed map, and every lap resolves them
+to its own distance axis like a corner's apex. A document without the key
+simply has no sectors; a consumer falls back to thirds of the lap.
+
 Track width calibration is deliberately NOT in the bundle: it is a property
 of the car being driven, not of the circuit.
 
@@ -101,6 +109,9 @@ MAX_POINTS = 50_000
 MAX_FINISH_CROSSINGS = 20
 MAX_CORNERS = 100  # Nordschleife is 73 named corners; 100 is head-room
 MAX_SECTIONS = 40
+# Sector boundaries. GT7 shows three sectors; a boundary per corner would be
+# the most anyone could want, and twenty is already past that.
+MAX_SECTORS = 20
 MAX_LABEL = 60  # corner/section name
 MAX_TRACK_NAME = 80  # matches the API's track-name cap
 
@@ -504,6 +515,7 @@ def _upgrade(doc: dict[str, Any], version: int, source: str, label: str) -> dict
     # (#93). Every v4 record is a valid v5 record; only the stamp moves.
     doc.setdefault("corners", [])
     doc.setdefault("sections", [])
+    doc.setdefault("sectors", [])
     doc["meta"].setdefault("official", None)
     doc["version"] = BUNDLE_VERSION
     log.info("upgraded track bundle %s v%s -> v%d (%d records -> %d voted cells)",
@@ -532,6 +544,9 @@ def load_slug(data_dir: Path, slug: str) -> dict[str, Any] | None:
             return None
         if version < BUNDLE_VERSION:
             doc = _upgrade(doc, version, source_id(data_dir), path.name)
+        # Sectors joined v5 as an optional key (#22): a v5 file written before
+        # they existed is a v5 file with none, not an older format.
+        doc.setdefault("sectors", [])
         return doc
     except (ValueError, KeyError, TypeError, OSError) as exc:
         log.warning("unreadable track bundle %s: %s", path, exc)
@@ -555,6 +570,7 @@ def _document(
     corners: list[dict[str, Any]],
     sections: list[dict[str, Any]],
     official: dict[str, Any] | None,
+    sectors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "format": BUNDLE_FORMAT,
@@ -579,6 +595,7 @@ def _document(
         "finish_crossings": finish,
         "corners": corners,
         "sections": sections,
+        "sectors": sectors or [],
     }
 
 
@@ -618,6 +635,7 @@ def save(
         corners=existing["corners"] if existing else [],
         sections=existing["sections"] if existing else [],
         official=existing["meta"]["official"] if existing else None,
+        sectors=existing["sectors"] if existing else [],
     )
     meta = _write(data_dir, track, doc)
     log.info("track bundle saved: %s (%d points, %d runs)",
@@ -657,6 +675,7 @@ def save_replacing_run(
         corners=existing["corners"] if existing else [],
         sections=existing["sections"] if existing else [],
         official=existing["meta"]["official"] if existing else None,
+        sectors=existing["sectors"] if existing else [],
     )
     meta = _write(data_dir, track, doc)
     log.info("track bundle rewritten without run %d of %s: %s (%d votes retracted, "
@@ -704,6 +723,7 @@ def stats(doc: dict[str, Any]) -> dict[str, Any]:
         "finish_crossings": len(doc["finish_crossings"]),
         "corners": len(doc["corners"]),
         "sections": len(doc["sections"]),
+        "sectors": len(doc.get("sectors") or []),
         "sources": len(doc["meta"]["source_runs"]),
     }
 
@@ -731,8 +751,9 @@ def set_authored(
     track: str,
     corners: list[dict[str, Any]] | None = None,
     sections: list[dict[str, Any]] | None = None,
+    sectors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Replace the hand-labelled corners/sections of an existing bundle.
+    """Replace the hand-labelled corners/sections/sectors of an existing bundle.
 
     Returns None when there is no bundle for `track`: corners are anchored to
     world positions on a surveyed map, so authoring them for a circuit that
@@ -746,6 +767,8 @@ def set_authored(
         doc["corners"] = renumber(corners)
     if sections is not None:
         doc["sections"] = renumber(sections)
+    if sectors is not None:
+        doc["sectors"] = renumber(sectors)
     doc["meta"]["updated_at"] = datetime.now(UTC).isoformat()
     _write(data_dir, doc["meta"]["track"], doc)
     return doc
@@ -952,6 +975,18 @@ def validate_section(raw: Any, index: int) -> dict[str, Any]:
     }
 
 
+def validate_sector(raw: Any, index: int) -> dict[str, Any]:
+    """One sector boundary: where sector `n` ends (#22)."""
+    where = f"sector {index}"
+    if not isinstance(raw, dict):
+        raise BundleError(f"{where} is not an object")
+    return {
+        "n": int(_number(raw.get("n", index + 1), f"{where}: n", limit=MAX_SECTORS)),
+        "name": _text(raw.get("name", ""), f"{where}: name", MAX_LABEL),
+        "end": _point(raw.get("end"), f"{where}: end"),
+    }
+
+
 def validate_official(raw: Any) -> dict[str, Any] | None:
     if raw is None:
         return None
@@ -1013,6 +1048,9 @@ def validate_document(raw: Any) -> dict[str, Any]:
         raise BundleError(f"corners must be a list of at most {MAX_CORNERS}")
     if not isinstance(sections_raw, list) or len(sections_raw) > MAX_SECTIONS:
         raise BundleError(f"sections must be a list of at most {MAX_SECTIONS}")
+    sectors_raw = raw.get("sectors") or []
+    if not isinstance(sectors_raw, list) or len(sectors_raw) > MAX_SECTORS:
+        raise BundleError(f"sectors must be a list of at most {MAX_SECTORS}")
 
     doc: dict[str, Any] = {
         "format": BUNDLE_FORMAT,
@@ -1027,6 +1065,7 @@ def validate_document(raw: Any) -> dict[str, Any]:
         "finish_crossings": [_validate_finish(c, i) for i, c in enumerate(finish_raw)],
         "corners": renumber([validate_corner(c, i) for i, c in enumerate(corners_raw)]),
         "sections": renumber([validate_section(s, i) for i, s in enumerate(sections_raw)]),
+        "sectors": renumber([validate_sector(s, i) for i, s in enumerate(sectors_raw)]),
     }
     if version >= 4:
         runs_raw = meta.get("source_runs")
@@ -1105,8 +1144,13 @@ def merge_document(
     # numbering replacing yours silently is the one outcome nobody wants back.
     corners = existing["corners"] if existing and existing["corners"] else doc["corners"]
     sections = existing["sections"] if existing and existing["sections"] else doc["sections"]
+    sectors = (
+        existing["sectors"] if existing and existing["sectors"] else doc.get("sectors") or []
+    )
     official = (existing["meta"]["official"] if existing else None) or doc["meta"]["official"]
-    merged = _document(name, edges, finish, source_runs, corners, sections, official)
+    merged = _document(
+        name, edges, finish, source_runs, corners, sections, official, sectors=sectors
+    )
     meta = _write(data_dir, name, merged)
     log.info("merged bundle into %r: %d -> %d cells, %d sources",
              name, before, len(edges), len(source_runs))
@@ -1131,8 +1175,9 @@ def own_evidence(doc: dict[str, Any], source: str) -> dict[str, Any] | None:
     that cannot be uploaded at all. This is the upload: each record keeps
     the votes `source` cast and nothing else, its kind re-resolved from those
     alone, records `source` never voted on are dropped, and the run count is
-    `source`'s own. Authored corners and sections, the finish crossings and
-    the confirmed layout travel whole — none of them carries a source.
+    `source`'s own. Authored corners, sections and sectors, the finish
+    crossings and the confirmed layout travel whole — none of them carries a
+    source.
 
     None when `source` cast no vote anywhere: nothing of this installation's
     to send. What comes back is a valid v5 document, and re-merging it into
@@ -1159,6 +1204,7 @@ def own_evidence(doc: dict[str, Any], source: str) -> dict[str, Any] | None:
         "finish_crossings": list(doc["finish_crossings"]),
         "corners": list(doc["corners"]),
         "sections": list(doc["sections"]),
+        "sectors": list(doc.get("sectors") or []),
     }
 
 

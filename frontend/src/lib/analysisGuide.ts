@@ -43,7 +43,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Cursor and zoom",
     body:
-      "Hover any chart to move the cursor everywhere — charts, map, Corner Detail and traction circle. Drag across a chart to zoom; double-click or Full resets, and S1–S3 jump to thirds of the lap.",
+      "Hover any chart, the map or the lap strip to move the cursor everywhere — charts, map, Corner Detail and traction circle. Drag across a chart, along the line on the map, or on the lap strip to zoom; drag the strip's edges to resize the window. ⌘/Ctrl + scroll on the map zooms about the pointer. Esc, a double-click or Full lap resets.",
     docs: `${VIEW}#stacked-charts`,
   },
   {
@@ -61,7 +61,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Race line",
     body:
-      "The reference lap from above, coloured by what the driver was doing — green throttle, red brake, blue coasting — with ▲ speed peaks and ▼ valleys. Other laps are drawn in their chart colours.",
+      "The reference lap from above, coloured by the chosen lens: Inputs (green throttle, red brake, blue coasting), Speed, or Gain / loss — where the compared lap gains and loses time. Other laps are drawn thin in their chart colours, brighter when zoomed in.",
     docs: `${VIEW}#race-line-map`,
   },
   {
@@ -77,15 +77,21 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#race-line-map`,
   },
   {
-    title: "Events and aids on the map",
+    title: "Layers",
     body:
-      "Events marks where each lockup ◆, wheelspin ●, bottoming ✚ and kerb strike ✖ began, in the lap's colour — hover for the wheels, click to zoom there. TCS and ASM ring every sample the aid was working.",
-    docs: `${VIEW}#events-and-driver-aids`,
+      "The Layers menu switches each thing the map draws besides the reference line: the surveyed road, corner numbers, the other laps with their apex speeds and brake points, and the markers — speed peaks, kerbs, events (lockup ◆, wheelspin ●, bottoming ✚, kerb strike ✖) and TCS / ASM rings. Only layers the laps can fill are listed.",
+    docs: `${VIEW}#layers`,
+  },
+  {
+    title: "Lap strip and sectors",
+    body:
+      "The bar under the map is the lap unrolled, coloured like the line, with the track's sectors above it and the corners below. S1…Sn zoom to a sector — the circuit's own when its boundaries are labelled on the Tracks page, thirds of the lap otherwise. A compact copy sits over the charts.",
+    docs: `${VIEW}#lap-strip`,
   },
   {
     title: "Corners",
     body:
-      "Numbered circles on the map — the circuit's labelled corners, or corners found on the reference lap. Click one, or step through the strip under the map, to zoom everything to it.",
+      "Numbers beside each corner on the map and under the strip — the circuit's labelled corners, or corners found on the reference lap. Click one, or press [ and ] to step through them, and everything zooms to it, from the braking zone to the exit.",
     docs: `${VIEW}#corners`,
   },
   {
@@ -97,8 +103,14 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Corner report card",
     body:
-      "Entry, minimum and exit speed and the time through each corner, sorted by time lost against the reference. Click a row to zoom to that corner.",
+      "Entry, minimum and exit speed and the time through each corner, in track order or — with the sort switch — biggest loss against the reference first. Click a row to zoom to that corner.",
     docs: `${VIEW}#corner-report-card`,
+  },
+  {
+    title: "Sector times",
+    body:
+      "Every lap of the session split at the track's sectors (thirds of the lap on a circuit without them), with the best of each sector and the best lap in purple. Laps that don't count toward bests are listed faint and hold no best.",
+    docs: `${VIEW}#sector-times`,
   },
   {
     title: "Braking points",

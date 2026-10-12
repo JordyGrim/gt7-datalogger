@@ -17,9 +17,18 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EChart } from "@/components/EChart";
+import { Select } from "@/components/ui/Select";
 import { api, type TrackBundleDoc } from "@/lib/api";
+import { formatLapTime } from "@/lib/format";
+import { boundariesFromSplits, formatClock, parseClock } from "@/lib/sectorSplits";
 import { roadQuads } from "@/lib/surveyGeometry";
-import type { AuthoredCorner, AuthoredSection, OfficialMatch } from "@/lib/types";
+import type {
+  AuthoredCorner,
+  AuthoredSection,
+  AuthoredSector,
+  LapSummary,
+  OfficialMatch,
+} from "@/lib/types";
 import { toast } from "@/store/toasts";
 
 const toastSuccess = (text: string) => toast(text, "success");
@@ -31,12 +40,20 @@ const ROAD_FILL = "rgba(148, 163, 184, 0.16)";
 const APEX_COLOR = "#facc15";
 const SELECTED_COLOR = "#f97316";
 const SECTION_COLOR = "#34d399";
+const SECTOR_COLOR = "#3ec9ff";
 const ENTRY_EXIT_COLOR = "#94a3b8";
 
 // What the next click on the map does. Placing is modal because a corner has
 // three anchors and a phone has one finger — a drag-handle affordance would
 // need a mouse the pit-wall tablet does not have.
-type PlaceMode = "apex" | "move-apex" | "entry" | "exit" | "section-start" | "section-end";
+type PlaceMode =
+  | "apex"
+  | "move-apex"
+  | "entry"
+  | "exit"
+  | "section-start"
+  | "section-end"
+  | "sector-end";
 
 const MODE_HELP: Record<PlaceMode, string> = {
   apex: "Click the map for each corner, in track order. Name them as you go.",
@@ -45,6 +62,7 @@ const MODE_HELP: Record<PlaceMode, string> = {
   exit: "Click where the corner ends — the exit.",
   "section-start": "Click where this section begins.",
   "section-end": "Click where this section ends.",
+  "sector-end": "Click where this sector ends — the split line.",
 };
 
 function blank(n: number): AuthoredCorner {
@@ -68,8 +86,93 @@ export function CornerEditor({
   const [error, setError] = useState("");
   const [corners, setCorners] = useState<AuthoredCorner[]>([]);
   const [sections, setSections] = useState<AuthoredSection[]>([]);
+  // Sector boundaries (#22): where each sector ends; the last runs to the
+  // line. The sector times in Analysis are read off them.
+  const [sectors, setSectors] = useState<AuthoredSector[]>([]);
   const [selected, setSelected] = useState(-1);
   const [selectedSection, setSelectedSection] = useState(-1);
+  const [selectedSector, setSelectedSector] = useState(-1);
+  // Boundaries from a lap's split times: the race screen showed S1 as
+  // 0:25 on a 1:00 lap, so the first sector ends where that lap was 25 s
+  // in. Typed as the game shows them, one per sector but the last.
+  const [splitsOpen, setSplitsOpen] = useState(false);
+  const [splitLaps, setSplitLaps] = useState<LapSummary[] | null>(null);
+  const [splitLapId, setSplitLapId] = useState<number | null>(null);
+  const [splitTimes, setSplitTimes] = useState<string[]>(["", ""]);
+  const [splitBusy, setSplitBusy] = useState(false);
+  const [splitError, setSplitError] = useState("");
+
+  useEffect(() => {
+    if (!splitsOpen || splitLaps != null) return;
+    let cancelled = false;
+    api.laps(trackName)
+      .then((all) => {
+        if (cancelled) return;
+        // Newest first; a lap without samples has no path to place on.
+        const laps = all
+          .filter((lap) => (lap.total_ticks ?? 0) > 0 && lap.time_ms > 0)
+          .sort((a, b) => b.id - a.id)
+          .slice(0, 40);
+        setSplitLaps(laps);
+        setSplitLapId((cur) => cur ?? laps[0]?.id ?? null);
+      })
+      .catch(() => !cancelled && setSplitLaps([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [splitsOpen, splitLaps, trackName]);
+
+  const splitLap = splitLaps?.find((lap) => lap.id === splitLapId) ?? null;
+  const splitMs = splitTimes.map((text) => (text.trim() ? parseClock(text) : null));
+  const splitTotal = splitMs.reduce<number>((sum, ms) => sum + (ms ?? 0), 0);
+
+  const placeFromSplits = async () => {
+    if (splitLap == null) return;
+    const times = splitMs.map((ms) => ms ?? 0);
+    if (times.some((ms) => !(ms > 0))) {
+      setSplitError("Every sector needs a time, as the game showed it.");
+      return;
+    }
+    setSplitBusy(true);
+    setSplitError("");
+    try {
+      const detail = await api.lapDetail(splitLap.id);
+      const samples = (detail.samples ?? {}) as Record<string, number[]>;
+      const result = boundariesFromSplits(
+        {
+          t: samples.t ?? [],
+          pos_x: samples.pos_x ?? [],
+          pos_z: samples.pos_z ?? [],
+          time_ms: splitLap.time_ms,
+        },
+        times,
+      );
+      if (!result.ok) {
+        setSplitError(result.error);
+        return;
+      }
+      // Replaces the list: these are the circuit's sectors now. Names
+      // typed for the old ones carry over by position.
+      setSectors((prev) =>
+        result.boundaries.map((b, i) => ({
+          n: i + 1,
+          name: prev[i]?.name ?? "",
+          end: { x: b.x, z: b.z },
+        })),
+      );
+      setSelectedSector(-1);
+      setMode(null);
+      setDirty(true);
+      setSplitsOpen(false);
+      toastSuccess(
+        `${result.boundaries.length + 1} sectors placed from L${splitLap.number} — last sector ${formatClock(result.remainder_ms)}. Save to keep them.`,
+      );
+    } catch (e) {
+      setSplitError((e as Error).message);
+    } finally {
+      setSplitBusy(false);
+    }
+  };
   const [mode, setMode] = useState<PlaceMode | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -84,6 +187,7 @@ export function CornerEditor({
         setDoc(d);
         setCorners(d.corners);
         setSections(d.sections);
+        setSectors(d.sectors ?? []);
       })
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
@@ -99,7 +203,9 @@ export function CornerEditor({
     if (mode === null) return;
     const at = { x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 };
     setDirty(true);
-    if (mode === "section-start" || mode === "section-end") {
+    if (mode === "sector-end") {
+      setSectors((prev) => prev.map((s, i) => (i !== selectedSector ? s : { ...s, end: at })));
+    } else if (mode === "section-start" || mode === "section-end") {
       setSections((prev) =>
         prev.map((s, i) =>
           i !== selectedSection
@@ -226,6 +332,27 @@ export function CornerEditor({
         z: 4,
       },
       {
+        // Sector boundaries: a bar across the road where each sector ends.
+        id: "sectors",
+        type: "scatter",
+        data: sectors.map((s, i) => ({
+          value: [s.end.x, s.end.z],
+          itemStyle: { color: i === selectedSector ? SELECTED_COLOR : SECTOR_COLOR },
+        })),
+        symbol: "rect",
+        symbolSize: [4, 16],
+        label: {
+          show: true,
+          position: "top",
+          color: "#e5e7eb",
+          fontSize: 10,
+          fontWeight: "bold",
+          formatter: (p) => `S${p.dataIndex + 1}`,
+        },
+        silent: true,
+        z: 4,
+      },
+      {
         id: "apexes",
         type: "scatter",
         data: corners.map((c, i) => ({
@@ -283,7 +410,7 @@ export function CornerEditor({
       tooltip: { show: false },
       series,
     };
-  }, [doc, corners, sections, selected, extents]);
+  }, [doc, corners, sections, sectors, selected, selectedSector, extents]);
 
   const update = (i: number, patch: Partial<AuthoredCorner>) => {
     setCorners((prev) => prev.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -308,11 +435,18 @@ export function CornerEditor({
       const result = await api.bundles.setCorners(slug, {
         corners: corners.map((c, i) => ({ ...c, n: i + 1 })),
         sections: sections.map((s, i) => ({ ...s, n: i + 1 })),
+        sectors: sectors.map((s, i) => ({ ...s, n: i + 1 })),
       });
       setCorners(result.corners);
       setSections(result.sections);
+      setSectors(result.sectors ?? []);
       setDirty(false);
-      toastSuccess(`Saved ${result.corners.length} corners on ${result.track}`);
+      const saved = result.sectors ?? [];
+      toastSuccess(
+        `Saved ${result.corners.length} corners${
+          saved.length > 0 ? ` and ${saved.length + 1} sectors` : ""
+        } on ${result.track}`,
+      );
       onSaved();
     } catch (e) {
       toastError((e as Error).message);
@@ -474,8 +608,11 @@ export function CornerEditor({
           <div className="border-t border-edge pt-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold">Sections</span>
-              <span className="text-xs text-ink-dim" title="Real sectors (#22) need somewhere to come from; GT7 broadcasts none">
-                optional
+              <span
+                className="text-xs text-ink-dim"
+                title="Named stretches of road — the straights, mostly. The lap analysis export times each one and finds the speed trap in it."
+              >
+                optional · named straights
               </span>
               <button
                 className="btn ml-auto"
@@ -536,6 +673,169 @@ export function CornerEditor({
                       e.stopPropagation();  // as above: the row selects on click
                       setSections((prev) => prev.filter((_, j) => j !== i));
                       setSelectedSection(-1);
+                      setMode(null);
+                      setDirty(true);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-edge pt-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold">Sectors</span>
+              <span
+                className="text-xs text-ink-dim"
+                title="Where each sector ends, in track order; the last runs to the start/finish line. GT7 broadcasts none, so the sector times in Analysis are read off these. Without them the lap is split into thirds."
+              >
+                optional · {sectors.length === 0 ? "thirds of the lap" : `${sectors.length + 1} sectors`}
+              </span>
+              <button
+                className={`btn ml-auto ${splitsOpen ? "border-accent text-accent" : ""}`}
+                title="Place the boundaries from the sector times a race screen showed for one of your laps"
+                onClick={() => setSplitsOpen((open) => !open)}
+              >
+                From splits…
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setSectors((prev) => [...prev, { n: prev.length + 1, name: "", end: { x: 0, z: 0 } }]);
+                  setSelectedSector(sectors.length);
+                  setMode("sector-end");
+                  setDirty(true);
+                }}
+              >
+                Add
+              </button>
+            </div>
+            {splitsOpen && (
+              <div className="mt-1.5 space-y-2 rounded-lg border border-accent/40 bg-panel-2 p-2 text-xs">
+                <p className="text-ink-dim">
+                  Pick a lap at this circuit and type each sector's time as the race screen
+                  showed it. The last sector is not typed — it is what is left of the lap —
+                  and each boundary goes where that lap was at that moment.
+                </p>
+                {splitLaps == null && <div className="skeleton h-7" />}
+                {splitLaps != null && splitLaps.length === 0 && (
+                  <div className="text-ink-dim">No recorded laps at this circuit yet.</div>
+                )}
+                {splitLaps != null && splitLaps.length > 0 && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-ink-dim">lap</span>
+                      <Select
+                        ariaLabel="Lap the split times belong to"
+                        value={String(splitLapId ?? "")}
+                        onValueChange={(v) => setSplitLapId(Number(v))}
+                        options={splitLaps.map((lap) => ({
+                          value: String(lap.id),
+                          label: `#${lap.session_id} · L${lap.number} · ${formatLapTime(lap.time_ms)}${
+                            lap.car_name ? ` · ${lap.car_name}` : ""
+                          }`,
+                        }))}
+                        className="max-w-full px-2 py-1 text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {splitTimes.map((text, i) => (
+                        <label key={i} className="inline-flex items-center gap-1">
+                          <span className="font-tabular text-ink-dim">S{i + 1}</span>
+                          <input
+                            value={text}
+                            placeholder="0:25.123"
+                            inputMode="decimal"
+                            onChange={(e) =>
+                              setSplitTimes((prev) =>
+                                prev.map((x, j) => (j === i ? e.target.value : x)),
+                              )
+                            }
+                            className={`w-[88px] rounded border bg-panel px-1.5 py-1 font-tabular text-xs text-ink ${
+                              text.trim() && splitMs[i] == null ? "border-brake" : "border-edge"
+                            }`}
+                          />
+                        </label>
+                      ))}
+                      <button
+                        className="btn"
+                        onClick={() => setSplitTimes((prev) => [...prev, ""])}
+                        title="One more sector before the last"
+                      >
+                        + sector
+                      </button>
+                      {splitTimes.length > 1 && (
+                        <button
+                          className="btn"
+                          onClick={() => setSplitTimes((prev) => prev.slice(0, -1))}
+                        >
+                          − sector
+                        </button>
+                      )}
+                    </div>
+                    <div className="font-tabular text-ink-dim">
+                      {splitLap && splitTotal > 0
+                        ? splitTotal < splitLap.time_ms
+                          ? `S${splitTimes.length + 1} = ${formatClock(splitLap.time_ms - splitTotal)} of the ${formatLapTime(splitLap.time_ms)} lap`
+                          : `the sectors add up to ${formatClock(splitTotal)}, past the ${formatLapTime(splitLap.time_ms)} lap`
+                        : `${splitTimes.length + 1} sectors`}
+                    </div>
+                    {splitError && <div className="text-brake">{splitError}</div>}
+                    <div className="flex gap-2">
+                      <button
+                        className="btn btn-primary"
+                        disabled={splitBusy || splitLap == null || splitMs.some((ms) => !(ms != null && ms > 0))}
+                        onClick={() => void placeFromSplits()}
+                      >
+                        {splitBusy ? "Placing…" : sectors.length > 0 ? "Replace boundaries" : "Place boundaries"}
+                      </button>
+                      <button className="btn" onClick={() => setSplitsOpen(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {sectors.map((s, i) => (
+              <div
+                key={i}
+                className={`mt-1.5 rounded-lg border p-2 ${
+                  i === selectedSector ? "border-accent/60 bg-panel-2" : "border-edge"
+                }`}
+                onClick={() => setSelectedSector(i)}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="w-6 shrink-0 font-tabular text-xs">S{i + 1}</span>
+                  <input
+                    value={s.name}
+                    placeholder="name (optional)"
+                    onChange={(e) => {
+                      setSectors((prev) =>
+                        prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                      );
+                      setDirty(true);
+                    }}
+                    className="min-w-0 flex-1 rounded border border-edge bg-panel-2 px-1.5 py-1 text-xs text-ink"
+                  />
+                  <button
+                    className={`btn ${mode === "sector-end" && i === selectedSector ? "border-accent text-accent" : ""}`}
+                    title="Click the map where this sector ends"
+                    onClick={() => {
+                      setSelectedSector(i);
+                      setMode("sector-end");
+                    }}
+                  >
+                    {s.end.x === 0 && s.end.z === 0 ? "ends at…" : "ends ✓"}
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={(e) => {
+                      e.stopPropagation(); // as above: the row selects on click
+                      setSectors((prev) => prev.filter((_, j) => j !== i));
+                      setSelectedSector(-1);
                       setMode(null);
                       setDirty(true);
                     }}

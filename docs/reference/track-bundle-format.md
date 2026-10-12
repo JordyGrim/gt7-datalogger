@@ -66,7 +66,8 @@ under [Corrections](#corrections-the-repos-not-part-of-the-bundle).
   "edges": [ /* border records — see below */ ],
   "finish_crossings": [ /* lap-rollover points on the start/finish line */ ],
   "corners": [ /* hand-labelled corners */ ],
-  "sections": [ /* hand-labelled sections */ ]
+  "sections": [ /* hand-labelled sections */ ],
+  "sectors": [ /* hand-placed sector boundaries — optional */ ]
 }
 ```
 
@@ -228,6 +229,24 @@ Optional named stretches, the input real sectors need (GT7 broadcasts none).
   "end": { "x": 400.0, "z": 120.0 } }
 ```
 
+## `sectors` — authored (v5, optional)
+
+Where the circuit's sectors end, for sector times. GT7 shows three sector splits and
+broadcasts none of them, so the boundaries are placed by hand on the surveyed map. Each
+record is one boundary: the position where sector `n` ends and `n + 1` begins. Two
+records make three sectors; the last sector always runs to the start/finish line.
+
+```json
+{ "n": 1, "name": "", "end": { "x": 410.2, "z": -96.5 } }
+```
+
+Like a corner's apex, a boundary is a **position**, which every lap resolves to its own
+distance axis by where it passed nearest. A lap that never came within 60 m of a boundary,
+or passed them out of order, has no sector times.
+
+The key is optional and was added within v5: a document without it has no sectors, and a
+consumer falls back to thirds of the lap. Writers that do not know the key drop it.
+
 ## Version history
 
 | version | change | upgrade on read |
@@ -256,6 +275,7 @@ one.
 | `finish_crossings` | 20 | the newest are kept |
 | `corners` | 100 | the Nordschleife has 73 named corners |
 | `sections` | 40 | |
+| `sectors` | 20 | GT7 uses three; a boundary per corner would be the most anyone could want |
 | names | 60 characters | |
 | import body | 64 MB | |
 

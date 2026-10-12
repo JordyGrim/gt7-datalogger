@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
-from app.processing import alignment, analysis, corner_metrics, stint
+from app.processing import alignment, analysis, corner_metrics, sectors, stint
 from app.processing.laps import SAMPLE_COLUMNS, decode_samples
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import replay
@@ -583,10 +583,12 @@ async def compare(
     # document — off the event loop.
     track = await svc(request).repo.track_for_lap(ref)
     authored = await asyncio.to_thread(svc(request).authored_corners, track)
+    authored_sectors = await asyncio.to_thread(svc(request).authored_sectors, track)
     # Resampling and lining laps up is a few hundred milliseconds of Python
     # for a handful of laps — off the event loop too.
     return await asyncio.to_thread(
-        _compare_laps, samples_by_id, events_by_id, ref, columns, step, authored
+        _compare_laps, samples_by_id, events_by_id, ref, columns, step, authored,
+        authored_sectors,
     )
 
 
@@ -597,6 +599,7 @@ def _compare_laps(
     columns: tuple[str, ...],
     step: float,
     authored: list[dict[str, Any]],
+    authored_sectors: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     ref_samples = samples_by_id[ref]
     # Corner numbering comes from the reference lap only, so every overlaid
@@ -651,6 +654,11 @@ def _compare_laps(
             entry["gg"] = analysis.gg_extremes(samples, out["accel"])
         if lap_id == ref:
             entry["corners"] = ref_corners
+            # The circuit's sectors on the reference's axis (#22): the lap
+            # strip's S1…Sn. Thirds of the reference lap when the circuit
+            # has none authored, which is what S1/S2/S3 always meant.
+            points, own = sectors.boundary_points(authored_sectors or [], ref_samples)
+            entry["sectors"] = sectors.sectors_for_lap(ref_samples, points, own)
         else:
             entry["delta"] = analysis.time_delta_series(samples, ref_samples, step)
         if ref_corners:
@@ -749,6 +757,67 @@ async def stint_trend(request: Request, session_id: int) -> dict[str, Any]:
         if reduced is not None:
             figures[row["id"]] = reduced
     return {"session_id": session_id, **stint.stint_trend(rows, figures)}
+
+
+@router.get("/analysis/sectors")
+async def sector_times(request: Request, session_id: int) -> dict[str, Any]:
+    """Every lap of a session split at the circuit's sectors (#22).
+
+    The boundaries are the circuit's authored ones, or thirds of the
+    session's reference lap — its quickest lap that counts — resolved to
+    positions so that every lap is split at the same two places on the
+    road. Each lap's splits are read off its own clock at those places and
+    sum to its lap time. Laps are read one at a time, as the stint trend
+    reads them: a session of any length costs the memory of one lap.
+    """
+    service = svc(request)
+    repo = service.repo
+    session = await repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    rows = [r for r in await repo.list_laps(session_id) if (r["total_ticks"] or 0) > 0]
+    rows.sort(key=lambda r: (r["number"], r["id"]))
+    track = str(session.get("track_name") or "")
+    authored = await asyncio.to_thread(service.authored_sectors, track)
+
+    counting = [r for r in rows if r["counts_for_best"] and r["time_ms"] > 0]
+    reference = min(counting, key=lambda r: (r["time_ms"], r["id"]), default=None)
+    points: list[sectors.Boundary] = []
+    own = False
+    if reference is not None or authored:
+        ref_raw = await repo.lap_samples_json(reference["id"]) if reference else None
+
+        def _points(raw: str | None = ref_raw) -> tuple[list[sectors.Boundary], bool]:
+            return sectors.boundary_points(authored, decode_samples(raw) if raw else None)
+
+        points, own = await asyncio.to_thread(_points)
+
+    laps: list[dict[str, Any]] = []
+    for row in rows:
+        raw = await repo.lap_samples_json(row["id"])
+        if raw is None:
+            continue  # deleted since the list was read
+
+        def _splits(raw: str = raw, row: dict[str, Any] = row) -> list[float] | None:
+            return sectors.splits_ms(decode_samples(raw), points, float(row["time_ms"]))
+
+        laps.append({
+            "id": row["id"],
+            "number": row["number"],
+            "time_ms": row["time_ms"],
+            "counts_for_best": bool(row.get("counts_for_best", True)),
+            "reference": reference is not None and row["id"] == reference["id"],
+            "splits_ms": await asyncio.to_thread(_splits) if points else None,
+        })
+    return {
+        "session_id": session_id,
+        "source": "track" if own else "thirds" if points else "none",
+        "sectors": [
+            {"n": k + 1, "name": points[k]["name"] if k < len(points) else ""}
+            for k in range(len(points) + 1)
+        ] if points else [],
+        "laps": laps,
+    }
 
 
 @router.get("/analysis/fuel")

@@ -438,14 +438,9 @@ export function StackedCharts({
           },
         },
       },
-      legend: {
-        top: 0,
-        right: 8,
-        textStyle: { color: CHART_COLORS.label, fontSize: 11 },
-        icon: "roundRect",
-        itemWidth: 12,
-        itemHeight: 3,
-      },
+      // No legend of its own: the lap key sits in the strip pinned over the
+      // charts, which also says which stretch they show.
+      legend: { show: false },
       axisPointer: {
         type: "cross",
         link: [{ xAxisIndex: "all" }],

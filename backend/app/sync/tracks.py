@@ -92,6 +92,12 @@ MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 SETTLED = ("synced", "rejected")
 
 
+# The capabilities hint under `types.tracks` that says the server keeps
+# sector boundaries, as the most it takes per bundle. Absent on a server
+# from before they existed, which drops the key and says nothing.
+SECTORS_HINT = "max_sectors"
+
+
 @dataclass(slots=True)
 class TrackSync:
     """What the adapter knows about one bundle's standing with the server."""
@@ -277,7 +283,13 @@ class TracksAdapter:
             # remembered either: the first survey run here is what queues it.
             rec.status, rec.error = "imported", ""
             return
-        body, digest = await asyncio.to_thread(_serialise, own)
+        # Whether the server keeps sector boundaries (#22): it says so with a
+        # `max_sectors` hint in its capabilities. One that does not drops the
+        # key, so the digest is taken over what it keeps — and the day it
+        # starts keeping them, every bundle that has some reads as changed
+        # and goes up again on the next sweep.
+        keep_sectors = self.client.hint("tracks", SECTORS_HINT, 0) > 0
+        body, digest = await asyncio.to_thread(_serialise, own, keep_sectors)
         if rec.digest == digest and rec.status in SETTLED:
             return  # the server has already had its say on this exact document
         last = self._last_upload.get(slug)
@@ -467,14 +479,24 @@ class TracksAdapter:
             log.warning("sync: could not write %s: %s", path.name, exc)
 
 
-def _serialise(doc: dict[str, Any]) -> tuple[bytes, str]:
+def _serialise(doc: dict[str, Any], keep_sectors: bool = True) -> tuple[bytes, str]:
     """The upload body and the digest of its evidence. Blocking on a big bundle.
 
     `doc` is the own-evidence projection, so the digest moves only when this
     installation's votes or the authored data do — a pull that brings in
-    other people's metres leaves it alone."""
+    other people's metres leaves it alone.
+
+    The body always carries the sector boundaries; the digest carries them
+    only when the server keeps them (`keep_sectors`) and there are any.
+    Otherwise the key is left out of the digest altogether, which keeps it
+    identical to the one a build from before sectors existed computed, so an
+    upgrade re-sends nothing — and a server that learns the key later makes
+    exactly the bundles with sectors read as changed."""
     body = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    return body, digest(doc)
+    digested = doc
+    if not (keep_sectors and doc.get("sectors")):
+        digested = {k: v for k, v in doc.items() if k != "sectors"}
+    return body, digest(digested)
 
 
 def digest(doc: dict[str, Any]) -> str:

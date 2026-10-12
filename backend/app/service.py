@@ -183,6 +183,8 @@ class TelemetryService:
         # The circuit's authored sections, beside them and for the same
         # reason (#115): named stretches the lap analysis times.
         self._authored_sections: dict[str, list[dict[str, Any]]] = {}
+        # And its sector boundaries (#22), read out of the same document.
+        self._authored_sectors: dict[str, list[dict[str, Any]]] = {}
 
     def authored_corners(self, track: str) -> list[dict[str, Any]]:
         """A circuit's hand-labelled corners, if it has any. Blocking: the
@@ -206,17 +208,30 @@ class TelemetryService:
             sections = self._read_authored(track)[1]
         return sections
 
+    def authored_sectors(self, track: str) -> list[dict[str, Any]]:
+        """A circuit's sector boundaries (#22), if it has any. Blocking, like
+        the corners they are stored beside."""
+        if not track:
+            return []
+        key = track_bundle.slugify(track)
+        sectors = self._authored_sectors.get(key)
+        if sectors is None:
+            sectors = self._read_authored(track)[2]
+        return sectors
+
     def _read_authored(
         self, track: str
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """One parse of the bundle fills both caches."""
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """One parse of the bundle fills all three caches."""
         key = track_bundle.slugify(track)
         doc = track_bundle.load(self.settings.db_path.parent, track)
         corners = list(doc.get("corners") or []) if doc else []
         sections = list(doc.get("sections") or []) if doc else []
+        sectors = list(doc.get("sectors") or []) if doc else []
         self._authored[key] = corners
         self._authored_sections[key] = sections
-        return corners, sections
+        self._authored_sectors[key] = sectors
+        return corners, sections, sectors
 
     async def lap_analysis(self, session_id: int) -> dict[str, Any] | None:
         """The session's lap analysis document (#115): every lap measured
@@ -281,6 +296,7 @@ class TelemetryService:
         key = track_bundle.slugify(track)
         self._authored.pop(key, None)
         self._authored_sections.pop(key, None)
+        self._authored_sectors.pop(key, None)
         self._official_ids.pop(track, None)
 
     def bundle_changed(self, track: str, road: bool = True) -> None:

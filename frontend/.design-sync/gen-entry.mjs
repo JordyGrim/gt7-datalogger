@@ -36,6 +36,13 @@ const EXTRA = [
   // The race-line map's layer model and brake markers, and the stint helpers
   // the analysis view gates its stint panel on.
   "src/lib/mapLayers.ts",
+  // The map's colouring lenses, the corner zoom windows and the lap strip's
+  // gesture maths, and the sector table's bests: what the Analysis map, strip
+  // and sector panel are driven by.
+  "src/lib/mapLens.ts",
+  "src/lib/cornerZoom.ts",
+  "src/lib/lapStrip.ts",
+  "src/lib/sectorTimes.ts",
   "src/lib/stint.ts",
   // The fuel/stint projection and the alert thresholds the strategy and alert
   // widgets are driven by — a dashboard built on this library needs both.

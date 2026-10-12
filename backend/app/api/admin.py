@@ -280,6 +280,10 @@ async def sync_push(
     not wait out a backoff.
     """
     service = svc(request)
+    # Ask the server what it accepts first: a hint that has changed since
+    # the last check — a server that now keeps sector boundaries — decides
+    # what counts as unchanged in the sweep that follows.
+    await service.sync.refresh_capabilities()
     names = [type] if type else list(service.sync.adapters)
     active = [n for n in names if service.sync.active(n)]
     if not active:

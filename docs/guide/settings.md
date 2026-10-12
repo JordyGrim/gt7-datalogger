@@ -87,7 +87,11 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
   toggles default off, and enabling one never enables another.
     - **tracks** — the survey bundle of every circuit whose official layout you have
       confirmed, reduced to **this installation's own evidence**: the border votes it
-      cast, with the finish crossings, corner labels and sections. Evidence pulled
+      cast, with the finish crossings, corner labels, sections and sector boundaries.
+      A server from before sector boundaries existed drops them without complaint;
+      one that keeps them says so in its capabilities (`max_sectors`), and the first
+      **Sync now** after a server starts keeping them re-sends every bundle that has
+      some, so nothing placed earlier is left behind. Evidence pulled
       from the shared repo or imported from a friend's file stays here and never goes
       up — the service files every installation under one account and refuses a
       document naming somebody else's, so an upload carries only what was recorded
@@ -144,8 +148,9 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
       setting in the service's portal, not one here. A stream an administrator
       closes, or that another logger on the same account replaces, is held for
       fifteen minutes and says why rather than reconnecting at once.
-- **Send it now** — each type's row has a button: **Sync now** (tracks) uploads every
-  eligible bundle rather than waiting for it to settle, **Flush now** (sessions) sends
+- **Send it now** — each type's row has a button: **Sync now** (tracks) asks the
+  server what it accepts and uploads every eligible bundle rather than waiting for it
+  to settle, **Flush now** (sessions) sends
   the queued laps rather than waiting out a backoff. Unchanged bundles and laps the
   server already holds are still skipped. **Reconnect** (live) is only offered when
   the stream is being held after a failure; otherwise it reconnects by itself while

@@ -4,6 +4,7 @@ import type {
   AdminStats,
   AuthoredCorner,
   AuthoredSection,
+  AuthoredSector,
   CategoryBest,
   CoachingNotes,
   CompareResult,
@@ -19,6 +20,7 @@ import type {
   RaceEngineerDiagnostics,
   RejudgeResult,
   SessionSummary,
+  SectorTimes,
   StintTrend,
   SharedPullAll,
   SuggestionRejections,
@@ -63,6 +65,7 @@ export interface TrackBundleDoc {
   finish_crossings: { x: number; z: number; hx: number; hz: number; lap: number }[];
   corners: AuthoredCorner[];
   sections: AuthoredSection[];
+  sectors?: AuthoredSector[]; // absent from a server older than #22
 }
 
 export interface BundleMergeResult {
@@ -245,6 +248,9 @@ export const api = {
   // Lap time and tyre temperature lap over lap, split into stints (#111).
   stintTrend: (sessionId: number) =>
     get<StintTrend>(`/api/analysis/stint?session_id=${sessionId}`),
+  // Every lap of the session split at the circuit's sectors (#22).
+  sectorTimes: (sessionId: number) =>
+    get<SectorTimes>(`/api/analysis/sectors?session_id=${sessionId}`),
   fuelMap: (lapId: number) => get<FuelMapResult>(`/api/analysis/fuel?lap_id=${lapId}`),
   setRecording: (recording: boolean) =>
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),
@@ -373,13 +379,23 @@ export const api = {
         track: string;
         corners: AuthoredCorner[];
         sections: AuthoredSection[];
+        sectors?: AuthoredSector[];
         official: OfficialMatch | null;
       }>(`/api/track-bundles/${slug}/corners`),
     setCorners: (
       slug: string,
-      body: { corners?: AuthoredCorner[]; sections?: AuthoredSection[] },
+      body: {
+        corners?: AuthoredCorner[];
+        sections?: AuthoredSection[];
+        sectors?: AuthoredSector[];
+      },
     ) =>
-      send<{ track: string; corners: AuthoredCorner[]; sections: AuthoredSection[] }>(
+      send<{
+        track: string;
+        corners: AuthoredCorner[];
+        sections: AuthoredSection[];
+        sectors?: AuthoredSector[];
+      }>(
         `/api/track-bundles/${slug}/corners`,
         "PUT",
         body,
