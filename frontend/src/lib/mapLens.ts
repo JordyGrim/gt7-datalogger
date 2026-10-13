@@ -122,9 +122,25 @@ function speedBand(shown: number, edges: number[]): number {
 }
 
 /**
+ * Whether a lens has anything to colour by: speed needs the channel, gain /
+ * loss a comparison lap with a delta to read a slope from. The one answer
+ * the control (which greys a lens out) and the renderer (which falls back
+ * to inputs) both go by, so they can never disagree.
+ */
+export function canDraw(
+  lens: MapLens,
+  series: Samples & { dist: number[] },
+  units: Units,
+  gain: GainSource | null,
+): boolean {
+  if (lens === "speed") return speedBands(series.speed, units) != null;
+  if (lens === "gain") return gain != null && gain.dist.length >= 2;
+  return true;
+}
+
+/**
  * The reference series classified under one lens. Null when the lens has
- * nothing to colour by — speed on a lap without the channel, gain / loss
- * with no comparison lap — so the caller falls back to inputs.
+ * nothing to colour by (see canDraw), so the caller falls back to inputs.
  */
 export function lensSeries(
   lens: MapLens,
@@ -132,10 +148,10 @@ export function lensSeries(
   units: Units,
   gain: GainSource | null,
 ): LensSeries | null {
+  if (!canDraw(lens, series, units, gain)) return null;
   const n = series.dist.length;
   if (lens === "speed") {
-    const edges = speedBands(series.speed, units);
-    if (!edges) return null;
+    const edges = speedBands(series.speed, units)!;
     const unit = speedUnit(units);
     const keys = new Array<number>(n);
     for (let i = 0; i < n; i++) {
@@ -151,8 +167,7 @@ export function lensSeries(
       ],
     };
   }
-  if (lens === "gain") {
-    if (!gain || gain.dist.length < 2) return null;
+  if (lens === "gain" && gain) {
     const keys = new Array<number>(n);
     for (let i = 0; i < n; i++) keys[i] = gainClass(gain, series.dist[i]);
     const name = gain.label.split(" ")[0];

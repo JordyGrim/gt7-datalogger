@@ -149,7 +149,11 @@ def splits_ms(
     if n < 2:
         return None
     d, t = list(dist[:n]), list(clock[:n])
-    marks = [(_interp(d, t, b) - t[0]) * 1000 for b in bounds]
+    # The stored clock is anchored on the line: t = 0 is the crossing and
+    # the first sample sits half a frame past it (lap-file-format.md). Read
+    # as it stands — measured from the first sample instead, S1 would lose
+    # that half-frame to the last sector on every lap.
+    marks = [_interp(d, t, b) * 1000 for b in bounds]
     if any(m <= 0 or m >= time_ms for m in marks):
         return None
     edges = [0.0, *marks, float(time_ms)]

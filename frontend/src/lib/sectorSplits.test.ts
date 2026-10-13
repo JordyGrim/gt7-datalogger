@@ -49,6 +49,19 @@ describe("boundariesFromSplits", () => {
     expect(result.ok && result.boundaries[0].x).toBe(255);
   });
 
+  it("reads the split on the lap's clock from the line, not from its first sample", () => {
+    // The first sample half a second past the line, as a recording's is
+    // (by half a frame). The car was at x = 250 when the clock read 25 s;
+    // measured from the first sample it would be placed 5 m late.
+    const late = {
+      ...lap,
+      t: lap.t.map((v) => v + 0.5),
+      pos_x: lap.t.map((v) => (v + 0.5) * 10),
+    };
+    const result = boundariesFromSplits(late, [25_000]);
+    expect(result.ok && result.boundaries[0].x).toBe(250);
+  });
+
   it("refuses sectors that run past the lap, or an empty one", () => {
     const past = boundariesFromSplits(lap, [40_000, 25_000]);
     expect(past.ok).toBe(false);

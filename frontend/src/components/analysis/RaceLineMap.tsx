@@ -313,6 +313,8 @@ export function layerKey(
   brakeMarks: BrakeMarker[],
 ): LegendGlyph[] {
   const ref = laps.find((lap) => lap.isRef);
+  // The key lists what is drawn, and a hidden lap's markers are not.
+  const drawn = layers.others ? laps : laps.filter((lap) => lap.isRef);
   const out: LegendGlyph[] = [];
   const inZoom = (d: number) => !zoomRange || (d >= zoomRange[0] && d <= zoomRange[1]);
   if (layers.peaks && ref) {
@@ -328,7 +330,7 @@ export function layerKey(
   }
   if (layers.events) {
     const types = new Set<EventType>();
-    for (const lap of laps) {
+    for (const lap of drawn) {
       for (const { event } of eventMarkers(lap.entry, zoomRange)) types.add(event.type);
     }
     for (const type of EVENT_ORDER) {
@@ -343,7 +345,7 @@ export function layerKey(
   }
   for (const aid of AID_LAYERS) {
     if (!layers[aid.key]) continue;
-    if (laps.some((lap) => aidPoints(lap.entry.series, aid.bit, zoomRange).length > 0)) {
+    if (drawn.some((lap) => aidPoints(lap.entry.series, aid.bit, zoomRange).length > 0)) {
       out.push({
         glyph: aid.legend,
         label: aid.label,
@@ -507,6 +509,10 @@ function MapBody({
       }
     } else {
       for (const lap of laps) {
+        // A hidden lap is not in the frame: with "Other laps" off, a lap
+        // that could not be lined up and sits off on its own axis must not
+        // keep the reference line small.
+        if (!lap.isRef && !layers.others) continue;
         const s = lap.entry.series;
         for (let i = 0; i < s.dist.length; i++) {
           if (s.pos_x[i] != null && s.pos_z[i] != null) see(s.pos_x[i], s.pos_z[i]);
@@ -553,7 +559,7 @@ function MapBody({
       zMin: cz - spanZ / 2,
       zMax: cz + spanZ / 2,
     };
-  }, [laps, outline, ref, zoomRange, aspect, framedMarks, layers.road]);
+  }, [laps, outline, ref, zoomRange, aspect, framedMarks, layers.road, layers.others]);
 
   // The borders as simplified polylines — a few hundred points instead of
   // thousands of segments, and cached per outline so a zoom costs nothing.
@@ -1150,15 +1156,20 @@ function MapBody({
     // Every dot is interpolated, the reference's included: in time sync the
     // gap between them is the reading, and a reference dot snapped to its
     // nearest step would add up to half a step of false gap.
-    const updates: SeriesOption[] = laps.map((lap) => {
-      const s = lap.entry.series;
-      let at: [number, number] | null = null;
-      if (tRef != null && !lap.isRef) at = positionAtTime(lap.entry.track ?? s, tRef);
-      else if (cursorDist != null) at = positionAtDist(s, cursorDist);
-      return { id: `cursor-${lap.id}`, data: at ? [at] : [] } as SeriesOption;
-    });
+    // Only the dots the option has a series for: with "Other laps" off the
+    // other laps have none, and a patch naming a series the chart does not
+    // hold would add a typeless one.
+    const updates: SeriesOption[] = laps
+      .filter((lap) => lap.isRef || layers.others)
+      .map((lap) => {
+        const s = lap.entry.series;
+        let at: [number, number] | null = null;
+        if (tRef != null && !lap.isRef) at = positionAtTime(lap.entry.track ?? s, tRef);
+        else if (cursorDist != null) at = positionAtDist(s, cursorDist);
+        return { id: `cursor-${lap.id}`, data: at ? [at] : [] } as SeriesOption;
+      });
     chart.setOption({ series: updates }, { notMerge: false, lazyUpdate: true });
-  }, [laps, cursorDist, ref, sync, option]);
+  }, [laps, cursorDist, ref, sync, option, layers.others]);
 
   // Brake points merge in by series id as well. Keyed on the option too:
   // rebuilding it (a new zoom, a new selection) puts the empty series back.
@@ -1360,7 +1371,7 @@ function MapBody({
     return { name: `T${current.n}`, dir, who: focus.label.split(" ")[0], delta, deltaColor, brake };
   }, [current, ref, focus, hero, units]);
 
-  const others = laps.filter((lap) => !lap.isRef);
+  const others = laps.filter((lap) => !lap.isRef && layers.others);
   const key = useMemo(
     () => layerKey(laps, layers, zoomRange, shownMarks),
     [laps, layers, zoomRange, shownMarks],

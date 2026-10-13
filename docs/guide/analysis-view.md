@@ -252,6 +252,9 @@ the panel header:
   the reference (green) and where it is losing it (red), read off the slope of the time
   diff over a 30 m window; grey where it is holding even. Needs a comparison lap.
 
+A lens the comparison cannot draw — Speed on a recording without the channel, Gain /
+loss with only the reference selected — is greyed out in the control.
+
 The [lap strip](#lap-strip) under the map is coloured the same way — the line unrolled.
 Other selected laps overlay as thin lines in their chart colours. The map follows the
 chart cursor, placing one dot per lap at the hovered distance so you can see the spatial
@@ -323,7 +326,8 @@ braked. The window animates into place.
 Everything besides the reference line is a layer with a switch in the **Layers** menu,
 listed only when the selected laps have something to put on it; the choices are remembered
 on this device. **Track**: the surveyed road, the corner numbers. **Laps**: the other
-laps, their apex speeds, their brake points. **Markers**: ▲ speed peaks and ▼ valleys,
+laps (switching them off hides their markers and cursor dots too), their apex
+speeds, their brake points. **Markers**: ▲ speed peaks and ▼ valleys,
 kerb and off-track contact, chassis events, TCS and ASM rings. Events and the aid rings
 start off; everything else starts on.
 

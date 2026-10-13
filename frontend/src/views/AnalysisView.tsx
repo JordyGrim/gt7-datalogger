@@ -46,7 +46,7 @@ import {
 import { lapColor, lapColorMap } from "@/lib/colors";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
 import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
-import { LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
+import { canDraw, LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
 import { hasTrend } from "@/lib/stint";
 import { formatLapTime, formatSpeed, speedUnit, speedValue, formatTime } from "@/lib/format";
 import {
@@ -710,17 +710,15 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       .filter((l) => l.report.length > 0);
   }, [compare, lapLabels, refLap, lapColors]);
 
-  // Longest distance across the compared laps — the lap strip's length and
-  // the fallback sectors' denominator.
-  const maxDist = useMemo(() => {
-    if (!compare) return 0;
-    let m = 0;
-    for (const lap of Object.values(compare.laps)) {
-      const d = lap.series.dist;
-      if (d && d.length > 0) m = Math.max(m, d[d.length - 1]);
-    }
-    return m;
-  }, [compare]);
+  // The reference lap's length: the lap strip's, the fallback sectors'
+  // denominator and the zoom's far end. The reference's, not the longest
+  // compared lap's — a lap that could not be lined up keeps its own
+  // distance axis, and a longer one would leave the strip a blank tail,
+  // stretch the thirds and let the zoom run past the reference's line.
+  const refLength = useMemo(() => {
+    const d = refEntry?.series.dist;
+    return d && d.length > 0 ? d[d.length - 1] : 0;
+  }, [refEntry]);
 
   // The reference's corners with where it braked for each (#110), so that
   // every zoom window — the map's numbers, the strip, the report card, the
@@ -737,15 +735,15 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // old S1/S2/S3 buttons were.
   const sectors = useMemo<Sector[]>(() => {
     if (refEntry?.sectors && refEntry.sectors.length > 0) return refEntry.sectors;
-    if (maxDist <= 0) return [];
+    if (refLength <= 0) return [];
     return [1, 2, 3].map((n) => ({
       n,
       name: "",
-      start_dist: Math.round(((n - 1) * maxDist) / 3),
-      end_dist: n === 3 ? maxDist : Math.round((n * maxDist) / 3),
+      start_dist: Math.round(((n - 1) * refLength) / 3),
+      end_dist: n === 3 ? refLength : Math.round((n * refLength) / 3),
       authored: false,
     }));
-  }, [refEntry, maxDist]);
+  }, [refEntry, refLength]);
 
   // The reference line's colouring under the chosen lens. Gain / loss needs
   // a lap to compare: the report card's focus lap. A lens with nothing to
@@ -755,17 +753,34 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     const others = mapLaps.filter((lap) => !lap.isRef);
     return others.find((lap) => lap.id === reportFocusId) ?? others[0] ?? null;
   }, [mapLaps, reportFocusId]);
-  const lensData = useMemo(() => {
-    if (!refEntry) return null;
-    const gain =
+  const gainSource = useMemo(
+    () =>
       focusLap?.entry.delta != null
         ? { label: focusLap.label, dist: focusLap.entry.delta.dist, delta_ms: focusLap.entry.delta.delta_ms }
-        : null;
+        : null,
+    [focusLap],
+  );
+  // Which lenses this comparison can draw: Speed needs the channel (a
+  // packet-A recording has none), Gain / loss a lap to compare. A lens the
+  // map cannot draw is disabled in the control, and a choice that stops
+  // being drawable — the comparison lap toggled off — shows as Inputs, so
+  // the control never names a lens the map is not drawing.
+  const lensAvailable = useMemo<Record<MapLens, boolean>>(
+    () => ({
+      inputs: true,
+      speed: refEntry != null && canDraw("speed", refEntry.series, units, gainSource),
+      gain: refEntry != null && canDraw("gain", refEntry.series, units, gainSource),
+    }),
+    [refEntry, units, gainSource],
+  );
+  const lensShown: MapLens = lensAvailable[mapLens] ? mapLens : "inputs";
+  const lensData = useMemo(() => {
+    if (!refEntry) return null;
     return (
-      lensSeries(mapLens, refEntry.series, units, gain) ??
+      lensSeries(lensShown, refEntry.series, units, gainSource) ??
       lensSeries("inputs", refEntry.series, units, null)
     );
-  }, [refEntry, mapLens, units, focusLap]);
+  }, [refEntry, lensShown, units, gainSource]);
   const stripRuns = useMemo(
     () => (lensData && refEntry ? lensRuns(lensData, refEntry.series.dist) : []),
     [lensData, refEntry],
@@ -780,7 +795,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       ? "Custom stretch"
       : "Full lap";
   const zoomText = `${Math.round(shownZoom?.[0] ?? 0).toLocaleString()}–${Math.round(
-    shownZoom?.[1] ?? maxDist,
+    shownZoom?.[1] ?? refLength,
   ).toLocaleString()} m`;
 
   // [ and ] step through the corners, Esc comes back to the full lap — an
@@ -1068,9 +1083,17 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                 <SegmentedControl
                   ariaLabel="Map colouring"
                   size="sm"
-                  value={mapLens}
+                  value={lensShown}
                   onValueChange={setMapLens}
-                  options={LENS_OPTIONS}
+                  options={LENS_OPTIONS.map((o) => ({
+                    ...o,
+                    disabled: !lensAvailable[o.value],
+                    title: lensAvailable[o.value]
+                      ? undefined
+                      : o.value === "speed"
+                        ? "This recording has no speed channel"
+                        : "Needs a second lap with a time delta against the reference",
+                  }))}
                 />
               </span>
             </Tip>
@@ -1164,7 +1187,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               the corners on it, and the zoom window to drag about. */}
           <div className="border-t border-hairline px-4 pb-1 pt-2">
             <LapStrip
-              length={maxDist}
+              length={refLength}
               runs={stripRuns}
               sectors={sectors}
               corners={refCorners}
@@ -1222,7 +1245,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                 </div>
                 <LapStrip
                   compact
-                  length={maxDist}
+                  length={refLength}
                   runs={stripRuns}
                   sectors={sectors}
                   corners={refCorners}

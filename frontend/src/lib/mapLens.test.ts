@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canDraw,
   gainClass,
   GAIN_COLORS,
   INPUT_COLORS,
@@ -85,6 +86,16 @@ describe("lensSeries · gain / loss", () => {
 
   it("needs a comparison lap", () => {
     expect(lensSeries("gain", lap(), "metric", null)).toBeNull();
+  });
+
+  it("answers availability exactly as the renderer does", () => {
+    const degenerate = { label: "L9", dist: [0], delta_ms: [0] };
+    expect(canDraw("gain", lap(), "metric", degenerate)).toBe(false);
+    expect(lensSeries("gain", lap(), "metric", degenerate)).toBeNull();
+    expect(canDraw("gain", lap(), "metric", gain)).toBe(true);
+    const { dist, throttle, brake } = lap();
+    expect(canDraw("speed", { dist, throttle, brake }, "metric", null)).toBe(false);
+    expect(canDraw("inputs", { dist, throttle, brake }, "metric", null)).toBe(true);
   });
 });
 

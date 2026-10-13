@@ -14,7 +14,8 @@ export function SegmentedControl<T extends string>({
 }: {
   value: T;
   onValueChange: (value: T) => void;
-  options: { value: T; label: React.ReactNode }[];
+  /** An option can be disabled, with a title saying why. */
+  options: { value: T; label: React.ReactNode; disabled?: boolean; title?: string }[];
   ariaLabel: string;
   disabled?: boolean;
   /** "sm" is the dense variant used inside toolbars and transports. */
@@ -35,9 +36,11 @@ export function SegmentedControl<T extends string>({
         <ToggleGroup.Item
           key={o.value}
           value={o.value}
+          disabled={o.disabled}
+          title={o.title}
           className={`${
             size === "sm" ? "px-2.5 py-1 text-[10.5px]" : "px-3 py-1.5 text-xs"
-          } font-tabular text-ink-faint transition-colors hover:text-ink data-[state=on]:bg-accent/16 data-[state=on]:text-accent-300`}
+          } font-tabular text-ink-faint transition-colors hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-faint data-[state=on]:bg-accent/16 data-[state=on]:text-accent-300`}
         >
           {o.label}
         </ToggleGroup.Item>

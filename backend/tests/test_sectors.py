@@ -137,6 +137,22 @@ def test_splits_sum_to_the_lap_time() -> None:
         assert split == pytest.approx(time_ms / 3, rel=0.02)
 
 
+def test_the_clock_is_read_from_the_line_not_the_first_sample() -> None:
+    """`t` is anchored on the line and the first sample sits half a frame
+    past it. A split measured from that sample instead would hand the gap
+    to the last sector on every lap — so the gap has to show up in S1."""
+    lap = circle_lap()
+    late = {**lap, "t": [v + 0.5 for v in lap["t"]]}  # the first sample half a second in
+    time_ms = round(late["t"][-1] * 1000) + 16
+    points, _ = sectors.boundary_points([], lap)
+    plain = sectors.splits_ms(lap, points, time_ms)
+    shifted = sectors.splits_ms(late, points, time_ms)
+    assert plain is not None and shifted is not None
+    assert shifted[0] == pytest.approx(plain[0] + 500, abs=0.5)
+    assert shifted[1] == pytest.approx(plain[1], abs=0.5)
+    assert shifted[-1] == pytest.approx(plain[-1] - 500, abs=0.5)
+
+
 def test_no_clock_no_lap_time_no_splits() -> None:
     lap = circle_lap()
     points, _ = sectors.boundary_points([], lap)

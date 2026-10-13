@@ -42,7 +42,7 @@ export const MAP_LAYER_GROUPS: { title: string; layers: MapLayerDef[] }[] = [
   {
     title: "Laps",
     layers: [
-      { key: "others", label: "Other laps", help: "Thin until you zoom in" },
+      { key: "others", label: "Other laps", help: "Their lines, markers and dots — thin until you zoom in" },
       { key: "apex", label: "Apex speeds", help: "Min speed per lap, when zoomed" },
       { key: "brakes", label: "Brake points", help: "Where each lap braked, per corner" },
     ],

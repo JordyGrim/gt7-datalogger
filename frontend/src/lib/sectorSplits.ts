@@ -68,10 +68,10 @@ export function boundariesFromSplits(lap: SplitLap, sectorsMs: number[]): SplitR
         error: `The sectors add up to ${formatClock(at)} at S${i + 1}, which is past the lap time of ${formatClock(lap.time_ms)}. The last sector is not typed — it is what is left.`,
       };
     }
-    // The clock in the samples runs from the first sample, which is the
-    // first tick after the line; the game's starts on the line.
-    const t0 = lap.t[0] ?? 0;
-    const position = positionAtTime(lap, t0 + at / 1000);
+    // The stored clock is anchored on the line, as the game's is: t = 0 is
+    // the crossing and the first sample sits half a frame past it, so a
+    // split is read exactly where it falls.
+    const position = positionAtTime(lap, at / 1000);
     if (!position) return { ok: false, error: `No position recorded ${formatClock(at)} into the lap.` };
     boundaries.push({ x: Math.round(position[0] * 10) / 10, z: Math.round(position[1] * 10) / 10, at_ms: at });
   }
