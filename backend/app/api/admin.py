@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import logbuffer
+from app import logbuffer, netinfo, settings_registry
 from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
@@ -111,7 +111,12 @@ SYNC_TYPES = {"tracks": "track uploads", "sessions": "session uploads", "live": 
 
 @router.put("/settings")
 async def put_settings(request: Request, payload: SettingsPayload) -> dict[str, Any]:
-    service = svc(request)
+    await apply_settings_payload(svc(request), payload)
+    return await get_settings(request)
+
+
+async def apply_settings_payload(service: TelemetryService, payload: SettingsPayload) -> None:
+    """Apply and persist the hand-built settings, each with its side effects."""
     if payload.ps_ip is not None and payload.ps_ip != service.settings.ps_ip:
         ip = payload.ps_ip.strip()
         if ip and not _looks_like_host(ip):
@@ -123,6 +128,7 @@ async def put_settings(request: Request, payload: SettingsPayload) -> dict[str, 
         await service.repo.set_setting("source", payload.source)
     if payload.log_level is not None:
         logging.getLogger().setLevel(payload.log_level)
+        service.settings.log_level = payload.log_level
         await service.repo.set_setting("log_level", payload.log_level)
         log.info("log level set to %s", payload.log_level)
     if (
@@ -149,7 +155,149 @@ async def put_settings(request: Request, payload: SettingsPayload) -> dict[str, 
         log.info("webhook events: %s", spec or "none")
     await _apply_race_engineer(service, payload)
     await _apply_sync(service, payload)
-    return await get_settings(request)
+
+
+# --- every setting (Settings › Advanced) --------------------------------------
+#
+# The registry's view of all of them: value, default, where the value comes
+# from, and whether it applies live or at the next start. Settings with
+# side effects already handled above (source switch, sync reconnect, engineer
+# reconfigure) go through apply_settings_payload, so the two endpoints can
+# never apply one setting two different ways.
+
+
+async def _config(service: TelemetryService) -> dict[str, Any]:
+    stored = await service.repo.get_settings()
+    return {
+        "groups": list(settings_registry.GROUPS),
+        "settings": [
+            settings_registry.describe(e, service.settings, service.env_settings, stored)
+            for e in settings_registry.ENTRIES
+        ],
+    }
+
+
+@router.get("/config")
+async def get_config(request: Request) -> dict[str, Any]:
+    return await _config(svc(request))
+
+
+class ConfigPatch(BaseModel):
+    # key -> new value, in the shape GET /config reports it.
+    values: dict[str, Any] = Field(default_factory=dict)
+    # keys handed back to the environment (or the shipped default).
+    reset: list[str] = Field(default_factory=list)
+
+
+# Applied before anything else in a PUT: the only settings whose live apply
+# can fail (a port another process holds), and they undo themselves when it
+# does, so a refused patch has changed nothing.
+_FALLIBLE = ("telemetry_port", "heartbeat_port")
+
+
+def _prevalidate(payload: SettingsPayload) -> None:
+    """Every check apply_settings_payload makes, made before it applies any.
+
+    The hand-built handlers validate as they go, so a bad sync address in
+    the same patch as a new console IP would otherwise land the IP and then
+    refuse. Raises the same 400s they would.
+    """
+    if payload.ps_ip and payload.ps_ip.strip() and not _looks_like_host(payload.ps_ip.strip()):
+        raise HTTPException(400, "not a valid IP address or hostname")
+    url = (payload.webhook_url or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "webhook URL must start with http:// or https://")
+    try:
+        typed = (payload.sync_url or "").strip()
+        if typed and "?" in typed:
+            parse_connection_string(typed)
+        elif typed:
+            normalise_server(typed)
+        if payload.sync_token and payload.sync_token.strip():
+            check_token(payload.sync_token)
+    except BadConnectionString as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+async def _apply_generic(service: TelemetryService, key: str, value: Any) -> None:
+    """A live setting with no hand-built handler: set it, then make it count."""
+    settings = service.settings
+    previous = getattr(settings, key)
+    setattr(settings, key, value)
+    if key in _FALLIBLE and settings.source == "udp":
+        try:
+            await service.restart_source()
+        except OSError as exc:
+            # Put the old port back and listen on it again: telemetry must
+            # not stay down because a new port was taken.
+            setattr(settings, key, previous)
+            await service.restart_source()
+            raise HTTPException(
+                400, f"{key}: cannot use UDP port {value}: {exc.strerror or exc}"
+            ) from exc
+    elif key == "sim_scenario" and settings.source == "sim":
+        await service.restart_source()
+    log.info("setting %s changed", key)
+
+
+@router.put("/config")
+async def put_config(request: Request, patch: ConfigPatch) -> dict[str, Any]:
+    service = svc(request)
+    registry = settings_registry
+    keys = [*patch.values, *patch.reset]
+    for key in keys:
+        entry = registry.BY_KEY.get(key)
+        if entry is None:
+            raise HTTPException(400, f"unknown setting: {key}")
+        if not entry.editable:
+            raise HTTPException(400, f"{entry.env} can only be set in the environment")
+    if set(patch.values) & set(patch.reset):
+        raise HTTPException(400, "a setting cannot be both changed and reset")
+
+    # The new value of every key, as the Settings attribute; a reset is the
+    # environment's value. Validated as a whole before anything is applied.
+    wanted: dict[str, Any] = {}
+    try:
+        for key, value in patch.values.items():
+            wanted[key] = registry.coerce(registry.BY_KEY[key], value)
+    except registry.SettingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    for key in patch.reset:
+        wanted[key] = getattr(service.env_settings, key)
+
+    legacy = {
+        k: registry.to_api(registry.BY_KEY[k], v)
+        for k, v in wanted.items()
+        if k in SettingsPayload.model_fields
+    }
+    payload = SettingsPayload(**legacy) if legacy else None
+    if payload is not None:
+        _prevalidate(payload)
+
+    async def apply(key: str, value: Any) -> None:
+        # Applied first, saved after: a value that fails to apply is never
+        # stored to come back at the next start.
+        if registry.BY_KEY[key].apply == "live":
+            await _apply_generic(service, key, value)
+        if key not in patch.reset:
+            await service.repo.set_setting(key, registry.to_store(value))
+
+    generic = [k for k in wanted if k not in legacy]
+    for key in generic:
+        if key in _FALLIBLE:
+            await apply(key, wanted[key])
+    if payload is not None:
+        await apply_settings_payload(service, payload)
+    for key in generic:
+        if key not in _FALLIBLE:
+            await apply(key, wanted[key])
+    # Resets drop the saved row last: the hand-built handlers above save as
+    # they apply, and the row must not outlive the reset.
+    for key in patch.reset:
+        await service.repo.delete_setting(key)
+        log.info("setting %s reset to %s", key, "environment" if key in
+                 service.env_settings.model_fields_set else "default")
+    return await _config(service)
 
 
 async def _apply_sync(service: TelemetryService, payload: SettingsPayload) -> None:
@@ -364,16 +512,7 @@ async def clear_logs() -> dict[str, str]:
 
 
 def _lan_ip() -> str:
-    """This machine's LAN address (for overlay URLs used from other devices)."""
-    import socket
-
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))  # no packet is sent; just picks a route
-            ip: str = s.getsockname()[0]
-            return ip
-    except OSError:
-        return ""
+    return netinfo.lan_ip()
 
 
 @router.get("/stats")
