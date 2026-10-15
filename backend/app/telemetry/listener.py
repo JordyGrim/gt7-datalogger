@@ -5,7 +5,9 @@ Sends a heartbeat to the console every ~1.6 s (GT7 stops sending after
 heartbeat character selects the packet format ("A", "B", "~", or "C" —
 richer formats add steering, motion, surface, and lap-timer data). If no
 console IP is configured, the heartbeat is broadcast so the console is
-auto-discovered from the first packet's source address.
+auto-discovered from the first packet's source address, and broadcast again
+whenever the stream goes stale, so a console that comes back on a new
+address is picked up without the user stepping in.
 
 "Find console" (`discover`) broadcasts the heartbeat on demand even when an
 IP is configured, and reports which address answers with GT7 telemetry.
@@ -276,13 +278,23 @@ class UdpTelemetrySource:
                 log.warning("heartbeat send failed: %s", exc)
             await asyncio.sleep(HEARTBEAT_INTERVAL)
 
+    def _heartbeat_targets(self) -> list[str]:
+        if self._settings.ps_ip:
+            return [self._settings.ps_ip]
+        if self._console_addr and self.connected:
+            return [self._console_addr[0]]
+        # Auto-discovery with no live stream: the console may be back on a
+        # different address (rest mode, a router reboot, a new DHCP lease),
+        # so broadcast as at startup. The last known address gets one too,
+        # for a network that drops broadcasts while the console kept its IP.
+        if self._console_addr:
+            return [BROADCAST_ADDR, self._console_addr[0]]
+        return [BROADCAST_ADDR]
+
     def _send_heartbeat(self) -> None:
         if self._transport is None:
             return
-        if self._settings.ps_ip:
-            target = (self._settings.ps_ip, self._settings.heartbeat_port)
-        elif self._console_addr:
-            target = (self._console_addr[0], self._settings.heartbeat_port)
-        else:
-            target = (BROADCAST_ADDR, self._settings.heartbeat_port)
-        self._transport.sendto(self.heartbeat_char.encode("ascii"), target)
+        for host in self._heartbeat_targets():
+            self._transport.sendto(
+                self.heartbeat_char.encode("ascii"), (host, self._settings.heartbeat_port)
+            )

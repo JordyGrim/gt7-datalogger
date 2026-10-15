@@ -17,7 +17,11 @@ The console only streams to a client that keeps asking for data:
    source address of the first telemetry packet that arrives — that's the
    auto-discovery mechanism.
 3. If no packet arrives for **5 s** the connection is considered stale and the status
-   indicator drops to "waiting for telemetry" while heartbeats continue.
+   indicator drops to "waiting for telemetry" while heartbeats continue. Without
+   `GT7_PS_IP` they go back to being broadcast (and sent to the last known address as
+   well), so a console that wakes from rest mode on a new DHCP address is found
+   again on its own. With an IP configured the heartbeat only ever goes to it; only
+   **Find console** broadcasts.
 
 The console streams to **every** client that keeps sending heartbeats, not only the
 latest one. Two dataloggers on different machines can capture the same drive at once,

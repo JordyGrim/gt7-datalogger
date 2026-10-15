@@ -85,6 +85,15 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Auto-discovery finds the console again on a new address.** With no console
+  IP set, the heartbeat followed the first console that answered and kept going
+  to that address for good, so a PlayStation that came back from rest mode, a
+  router reboot or a lease change on another DHCP address never streamed again
+  until **Find console** was pressed. Once the stream has been quiet for 5 s
+  the heartbeat is broadcast again (and still sent to the last known address),
+  and whichever address answers takes the stream over. With a console IP set
+  the heartbeat still goes only to it, and Find console still keeps a second
+  console it wakes out of a live stream.
 - **Race opening laps no longer inflate consistency.** Confirmed lap 1s from
   standing and rolling starts are excluded from bests with the reason **race start**,
   so the existing consistency calculation leaves them out too. Full-lap geometry
