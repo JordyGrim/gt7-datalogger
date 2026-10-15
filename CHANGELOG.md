@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-15
+
 ### Added
 
 - **Sector times.** (#22) A new Analysis panel splits every lap of the
@@ -134,6 +136,12 @@ Notable changes to GT7 Datalogger. The format follows
   so the existing consistency calculation leaves them out too. Full-lap geometry
   and telemetry are preserved, and the exclusion can be overridden. Existing
   sessions with a recorded race result are updated once, preserving manual rulings.
+- **A pit stop no longer splits a race in two.** (#136) Going through the
+  pits could close a completed lap and end its session at once, so one
+  continuous race became two sessions. The decision now waits until driving
+  resumes: the same car carrying on into the next lap keeps the session,
+  anything else starts a new one. Replays still split, and a race finish
+  seen while the car is inactive keeps its result in the original session.
 
 ## [0.7.0] - 2026-09-28
 
