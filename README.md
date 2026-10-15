@@ -60,8 +60,10 @@ per-feature guides, how every calculation works, and the API reference.
   per lap in the Sessions table (`2L·1S·4B`), and summarized in the tuning panel. TCS/ASM
   activation shades the throttle/speed panels.
 - **Race line map with lenses** — the reference lap drawn as one line coloured by
-  **Inputs** (throttle / brake / coast), **Speed** bands, or **Gain / loss** against the
-  compared lap, over the surveyed road where the circuit has one. A **Layers** menu
+  **Inputs** (throttle / brake / coast), **Speed** bands, **Gain / loss** against the
+  compared lap, **Tire temp** (the hottest tire: cold / working / hot) or **F−R temp**
+  (which axle's tires run hotter), over the surveyed road where the circuit has one. The
+  lens is remembered on the device and travels in the link. A **Layers** menu
   switches everything else the map draws: corner numbers, the other laps with their apex
   speeds and brake points, and markers for speed peaks (▲) / valleys (▼), kerbs, chassis
   events, and TCS / ASM activity. **Zoom** to a corner by clicking its number (or `[` /
@@ -78,6 +80,9 @@ per-feature guides, how every calculation works, and the API reference.
   corner against the reference, with **braking columns** (brake Δ m, peak %, zone length)
   and body-slip **balance**. Hover a row to pin both brake points on the map, click it to
   zoom there; sort in track order or biggest loss first.
+- **Gear choice** — the gear GT7 suggested, drawn dashed on the Gear panel beside the
+  gear engaged, the corners taken a gear higher shaded, and a count of them in the tuning
+  panel and the Sessions lap table.
 - **Stint trend** — lap time and tyre temperatures lap over lap, split into stints at
   pit stops, with each stint's drift as a figure (`+0.18 s/lap`).
 - **Lap playback** — play / pause, a scrub bar, and 0.25×–4× speed drive the synced
@@ -87,16 +92,17 @@ per-feature guides, how every calculation works, and the API reference.
   with the other laps as faint dots.
 - **Race engineer post-lap notes** — the coaching findings as text, per lap, replayed
   from the stored session whether or not voice was ever on.
-- **Gearing panel** — per-lap gear ratios with estimated speed at redline, tune top speed,
-  and redline RPM.
+- **Gearing panel** — the focus lap's gear ratios with each gear's speed at the redline,
+  and a speed-against-rpm sawtooth: a line per gear fitted to the lap, its own samples
+  climbing each line to the shift, and the reference ghosted when its gearbox differs.
 - Speed-deviation consistency chart across your best laps, relative fuel-map strategy
   table, and a tuning panel with aid usage, engine health (max water/oil temp, min oil
-  pressure), and event counts.
+  pressure), corners taken a gear high, and event counts.
 - **Cross-session comparison** — **+ Add lap…** pulls any lap ever recorded at the same
   circuit into the comparison (listed fastest first, guest chips labelled `S12·L3`),
   and the class-best benchmark row has a one-click *compare*. Alignment is
   distance-from-start, so laps line up corner-for-corner across sessions.
-- **Deep links everywhere** — `#/analysis?session=…&laps=…&ref=…&ch=…` bookmarks an exact
+- **Deep links everywhere** — `#/analysis?session=…&laps=…&ref=…&ch=…&lens=…` bookmarks an exact
   comparison; Sessions and Live hand laps straight into Analysis. Lap ids are global,
   so a link can name laps from other sessions and they load as guests.
 
@@ -105,7 +111,7 @@ per-feature guides, how every calculation works, and the API reference.
 - Browse historical sessions master–detail: a date-grouped list, and for the chosen
   session a stat strip (best, average, consistency, laps near best, fuel per lap), a
   lap-time chart, and a lap table with per-lap metrics (fuel, full throttle, full
-  brake, coasting, tire spin, events, max speed). Columns that never change are hidden
+  brake, coasting, tire spin, events, corners a gear high, max speed). Columns that never change are hidden
   automatically, the lap in progress is pinned live, and stable per-lap colors are
   shared with every chart. Each lap's **⋯** menu opens it in Analysis or sets it as the
   reference; tick laps to exclude, export or delete them in bulk.
@@ -164,9 +170,9 @@ per-feature guides, how every calculation works, and the API reference.
 
 - **Robust capture** — Salsa20 decryption, heartbeat keep-alive, console auto-discovery via
   UDP broadcast, automatic reconnect, and a visible connection status indicator.
-- **Rich per-lap recording** — 60 Hz sample series for 38 columns including per-wheel
+- **Rich per-lap recording** — 60 Hz sample series for 39 columns including per-wheel
   slip, per-corner tire temps, suspension travel, elevation, surface, steering, g-forces,
-  body slip, and a driver-aids bitmask, plus per-lap aggregates (aid usage %, engine
+  body slip, GT7's suggested gear, and a driver-aids bitmask, plus per-lap aggregates (aid usage %, engine
   health, gearing metadata).
 - **Sessions auto-split** on car change or race restart, so data never mixes — while
   menus, pauses and pit stops keep the session going.

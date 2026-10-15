@@ -61,7 +61,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Race line",
     body:
-      "The reference lap from above, coloured by the chosen lens: Inputs (green throttle, red brake, blue coasting), Speed, or Gain / loss — where the compared lap gains and loses time. Other laps are drawn thin in their chart colours, brighter when zoomed in.",
+      "The reference lap from above, coloured by the chosen lens: Inputs (green throttle, red brake, blue coasting), Speed, Gain / loss (where the compared lap gains and loses time), Tire temp (the hottest tire: cold, working, hot) or F−R temp (which axle's tires run hotter). The lens is remembered on this device and carried in the link. Other laps are drawn thin in their chart colours, brighter when zoomed in.",
     docs: `${VIEW}#race-line-map`,
   },
   {
@@ -125,6 +125,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#balance`,
   },
   {
+    title: "Gear choice",
+    body:
+      "Dashed on the Gear panel: the gear GT7 suggested, where it suggested one. Shading marks the corners taken a gear higher — still above it at the slowest point — and the Tuning panel counts the reference lap's.",
+    docs: `${VIEW}#gear-choice`,
+  },
+  {
     title: "Stint trend",
     body:
       "Lap time and tyre temperature for every lap of the session, split into stints at pit stops, with each stint's drift as a figure such as +0.18 s/lap. GT7 sends no tyre wear: temperature and pace drift are the only proxies.",
@@ -143,6 +149,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#corner-detail-widget`,
   },
   {
+    title: "Gearing",
+    body:
+      "The focus lap's ratios, and the sawtooth: speed against rpm, a line per gear up to the redline, and the lap's own samples climbing each line to its shift. The lines are fitted to the lap; the reference is drawn in grey when its gearbox differs.",
+    docs: `${VIEW}#gearing`,
+  },
+  {
     title: "Partial, excluded, salvaged",
     body:
       "Partial laps didn't time the whole circuit — a pit out-lap, or a race's lap 1 from the grid. Excluded laps were ruled out of bests by hand. Neither sets a best. Salvaged (⟲) laps were recovered from a stream that ended at the line, such as a replay.",
@@ -151,7 +163,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Side panels",
     body:
-      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, gearing, fuel strategy, consistency across the best laps, and every lap's time against the session's median and spread.",
+      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, fuel strategy, consistency across the best laps, and every lap's time against the session's median and spread.",
     docs: `${VIEW}#side-panels`,
   },
   {

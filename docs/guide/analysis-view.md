@@ -42,8 +42,11 @@ selected for the one you were looking at comes along.
 
 !!! tip "Deep links"
     The full selection is encoded in the URL —
-    `#/analysis?session=3&laps=12,15&ref=15&ch=speed,brake` — so a bookmark or shared
-    link reproduces the exact view. The Sessions and Live views use these links for
+    `#/analysis?session=3&laps=12,15&ref=15&ch=speed,brake&lens=tire_temp` — so a
+    bookmark or shared link reproduces the selection. `ch=` and `lens=` are there only
+    when the [channels](#channel-picker) or the map's [lens](#race-line-map) differ from
+    the defaults; a link without them leaves the viewer's own channels and lens as
+    they are. The Sessions and Live views use these links for
     their *compare* / *analyze* shortcuts. Lap ids are global, so a link may name
     laps from *other* sessions (`#/analysis?session=3&laps=12,208`) — they load as
     guest chips rather than being pruned.
@@ -69,6 +72,41 @@ line itself, not the last whole 5 m before it.
   the panel that explains them: lockups on Brake, wheelspin on Throttle,
   bottoming/kerbs on suspension panels; TCS activity shades Throttle, ASM shades Speed.
   Bands are tinted in the lap's color.
+- **Gear choice** — the Gear panel also draws the gear GT7 suggested, and shades the
+  corners taken a gear higher; see [below](#gear-choice).
+
+### Gear choice
+
+GT7 suggests a gear on its HUD (the *→ 3* beside the gear), and a lap now keeps the
+suggestion beside the gear it was in; laps recorded before that have none. On the
+**Gear** panel each lap that has suggestions gets a **dashed line** in its own colour:
+the gear GT7 suggested, broken wherever it suggested nothing. The tooltip lists it under
+the gear as **Suggested**.
+
+The panel is **shaded**, in the lap's colour, through each corner the lap took a gear
+high (below): inside the corner's window (the reference lap's corners, as everywhere
+else), wherever the lap was in a higher gear than GT7 suggested between the entry and
+its slowest point in the corner. A corner the lap got down in time for is not shaded,
+although every braking lap sits above the suggestion for a while as it comes down
+through the box. Past the slowest point the car is accelerating and the next gear up is
+no mistake, so nothing there is shaded either.
+
+The gear suggested for a corner is the **last suggestion** seen from the start of its
+approach — 250 m before its entry, never back past the previous corner's apex — to its
+slowest point. The last one rather than the one at the slowest point, because whether
+GT7 keeps the hint up until then or clears it once you are in the gear it asked for has
+not been checked against a console. A corner is **taken a gear high** when the gear at
+its slowest point is higher than that suggestion. A corner GT7 suggested nothing for,
+one across the start line, or a car in neutral or reverse at the slowest point is not
+judged at all. The [Tuning panel](#side-panels) counts the reference lap's corners
+taken a gear high, and the Sessions lap table every lap's
+([Gear high](sessions-view.md#lap-table)).
+
+!!! note
+    When GT7 fills the suggestion — on which cars and in which modes, whether it ever
+    suggests an upshift, whether a HUD setting turns it off — has not been checked
+    against a console recording yet. A lap on which GT7 suggested nothing has no
+    suggestion line and no shading, and is not judged.
 
 ## Lap playback
 
@@ -86,7 +124,8 @@ on track.
 
 Beside the transport, a strip of the live-dashboard widgets renders the reference lap at
 the playhead: the **steering wheel** turning (packet B+ recordings), the
-**throttle/brake bars**, current **gear** and **speed** — the driver's hands, replayed.
+**throttle/brake bars**, current **gear** (with GT7's suggested gear beside it, where
+the lap recorded one) and **speed** — the driver's hands, replayed.
 
 Details worth knowing:
 
@@ -257,9 +296,26 @@ the panel header:
 - **Gain / loss**: where the [report card's](#corner-report-card) lap is gaining time on
   the reference (green) and where it is losing it (red), read off the slope of the time
   diff over a 30 m window; grey where it is holding even. Needs a comparison lap.
+- **Tire temp**: the hottest of the four tires at each point, on the scale of the Live
+  view's tire tiles and [Corner Detail](#corner-detail-widget): blue below 55 °C
+  (cold), green 55–95 °C (working), red at 95 °C and above (hot).
+- **F−R temp**: the fronts' average tire temperature minus the rears', the
+  **tire temp F−R balance** channel drawn on the line. Red where the fronts run hotter,
+  blue where the rears do, grey where the two are within 3 °C of each other — exactly
+  3 °C included, as Corner Detail's balance readout counts it. The colour is full from
+  8 °C, the gap at which the [race engineer](race-engineer.md) calls out one axle
+  running hotter; the engineer measures that over a whole lap, the map shows where on
+  the lap it happens.
 
 A lens the comparison cannot draw — Speed on a recording without the channel, Gain /
-loss with only the reference selected — is greyed out in the control.
+loss with only the reference selected, the tire lenses on a lap recorded before
+per-corner channels existed — is greyed out in the control, with a tooltip saying why,
+and the line is coloured by Inputs instead.
+
+The lens is remembered on this device, and goes into the [link](#selecting-laps) when it
+is not Inputs. Opening a link that names a lens switches to it and remembers it, as a
+link's channels do. A lens the comparison cannot draw stays chosen — still in the URL,
+drawn as Inputs meanwhile — and takes over once the comparison can draw it.
 
 The [lap strip](#lap-strip) under the map is coloured the same way — the line unrolled.
 Other selected laps overlay as thin lines in their chart colours. The map follows the
@@ -458,6 +514,49 @@ temps and dashed suspension levels — and a cell gets a red/blue ring when the 
 runs more than 3 °C hotter/cooler than the reference at that point. With 3+ compared
 laps, focus chips let you switch the focus lap.
 
+## Gearing
+
+One lap's gearbox, as a table and as the classic sawtooth chart under it.
+
+- **The table** gives each gear's ratio and the speed it reaches at the redline, then
+  the redline itself, and GT7's top speed for the setup on laps that store one.
+- **The lines**, one per gear, run from standstill to the redline (dashed), each
+  labelled with its gear where it meets it. That meeting point is the table's speed
+  at redline, so the table and the chart always agree.
+- **The dots** are the lap itself: speed across, rpm up, a dot every 5 m, coloured like
+  its gear's line. They climb a gear's line to where the driver shifted and drop to the
+  next. How close each tooth tops out to the redline is the shift point; how far the
+  rpm falls across a shift is the gap between those two ratios; and a top gear whose
+  line runs far beyond the last dots is a gearbox longer than the circuit needs.
+  Points caught mid-shift, in neutral or in reverse are left out; a long lap is thinned
+  to 1,500 dots, always keeping the two either side of every shift. The white dot is
+  the car at the cursor, ringed in the colour of the gear it was in, and follows hover
+  and [playback](#lap-playback) like every other panel.
+
+The lap is the [corner report card's](#corner-report-card) focus lap, the same one the
+Gain / loss lens compares, or the reference when no other lap is loaded; the panel's
+title names it. When the reference runs a different gearbox (a guest lap in another
+car, or the same car on another setup), its dots and lines are drawn behind in grey,
+the lines dashed. On the same gearbox they would only repeat the focus lap's lines, so
+they are left out.
+
+GT7 sends the ratios and the redline but never the final drive, and a lap keeps no
+tire size; those two decide how fast a gear goes at a given rpm. So the lines are
+**fitted to the lap**: the speed per rpm is read off the stretches where the driven wheels turned with
+the road, and checked to agree across the gears
+([the math](../internals/derived-channels.md#gearing-panel-math)). When the lap gives no
+consistent fit (too few steady samples, or one gear all the way round an oval), GT7's
+top speed for the setup stands in as top gear's speed at the redline. The line under
+the chart says which.
+
+!!! note "Laps recorded before 0.7.0"
+    These hold a ratio where GT7's top speed now goes, so the table leaves the top speed
+    out and there is nothing to fall back on: a lap the fit refuses shows its dots with
+    no lines, and "—" for every speed at redline. A lap that fits gets the full chart,
+    whenever it was recorded. The simulator's rpm does not follow its ratios, so a
+    simulated lap is never fitted; its lines come from the simulator's top speed, and
+    its dots do not sit on them.
+
 ## Side panels
 
 - **Race engineer — post-lap notes** — the [race engineer's](race-engineer.md)
@@ -471,8 +570,7 @@ laps, focus chips let you switch the focus lap.
   detector the voice engineer uses — same thresholds, same reference (the
   session best as it stood at the time), same repetition windows — so they
   exist for every recorded session, whether or not voice was ever enabled.
-- **Gearing (reference lap)** — per-gear ratios with estimated speed at redline, tune
-  top speed, and redline RPM.
+- **Gearing** — the focus lap's ratios and the sawtooth chart; see [Gearing](#gearing).
 - **Consistency — best 5 laps** — median speed plus a deviation band across the
   session's best laps; a wide band marks corners you drive differently every lap.
 - **Lap times — this session** — every lap as a point, lap number across and lap time
@@ -491,7 +589,10 @@ laps, focus chips let you switch the focus lap.
   time remaining, and lap-time cost.
 - **Tuning info (reference lap)** — max speed, min ride height, input percentages, tire
   spin, fuel used, car category, aid usage (TCS/ASM %), engine health (max water/oil
-  temp, min oil pressure), and the detected-event summary. When the circuit is named and
+  temp, min oil pressure), **Corners a gear high** — of the corners GT7 suggested a gear
+  for, how many the reference lap took in a higher one ("2 of 9"; see
+  [Gear choice](#gear-choice), and left out when GT7 suggested nothing) — and the
+  detected-event summary. When the circuit is named and
   the car's class is known, it also shows the **class benchmark** — the fastest full lap
   ever recorded at this circuit in the same category (laps excluded by hand never
   set it, and a reference lap that doesn't count is not measured against it), the gap

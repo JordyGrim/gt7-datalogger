@@ -20,7 +20,7 @@ import {
 } from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
-import { GearingPanel } from "@/components/analysis/GearingPanel";
+import { GearingPanel, type GearingLap } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
 import { LapStrip } from "@/components/analysis/LapStrip";
 import { LapTimeChart } from "@/components/analysis/LapTimeChart";
@@ -45,6 +45,7 @@ import {
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
+import { gearHighCount } from "@/lib/gearChoice";
 import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
 import { canDraw, LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
 import { hasTrend } from "@/lib/stint";
@@ -98,15 +99,23 @@ const GG_COLUMNS = ["acc_lat", "acc_long"];
 // Playback (#59) synthesizes a LiveFrame at the playhead for the transport's
 // widget strip, so its channels ride along whatever the chart picker says.
 // Optional columns (steer, race_pos) simply come back absent on recordings
-// without them.
+// without them, and so does the suggested gear on a lap GT7 suggested nothing
+// on.
 const PLAYBACK_COLUMNS = [
-  "speed", "throttle", "brake", "gear", "rpm", "boost", "tire_slip",
+  "speed", "throttle", "brake", "gear", "suggested_gear", "rpm", "boost", "tire_slip",
   "steer", "race_pos",
 ];
 
 /** The session's default reference: its quickest lap that counts. A pit
  *  out-lap's short "time", or a lap the driver excluded (#74), is no
  *  yardstick — unless nothing else is left. */
+// The link whose lens was last applied. App hands the view the request it
+// parsed from the last hash it navigated to, and the view rewrites the hash
+// in place as the lens changes, so a view mounted again on that request (as
+// after the server-unreachable page) would put the link's lens back over the
+// one picked since. A lens is applied once per link, across mounts.
+let lensAppliedFrom: AnalysisRequest | null = null;
+
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
   const mapFollow = useSettings((s) => s.mapFollow);
@@ -115,6 +124,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const setMapSync = useSettings((s) => s.setMapSync);
   const mapLayers = useSettings((s) => s.mapLayers);
   const setMapLayer = useSettings((s) => s.setMapLayer);
+  // How the race line and the lap strip are coloured: remembered on this
+  // device, and carried in the link so a shared one shows the same view.
+  const mapLens = useSettings((s) => s.mapLens);
+  const setMapLens = useSettings((s) => s.setMapLens);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
   const recordingSessionId = useTelemetry((s) => s.status?.session_id ?? null);
 
@@ -226,6 +239,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     // Deliberately keyed on the serialized request only — re-running on every
     // object identity change would clobber in-view selection edits.
   }, [requestKey]);
+
+  // A link that names a lens applies it, at mount and when one is pasted,
+  // and the device remembers it as it does a link's channels. An effect of
+  // its own: the one above skips the mount, and ignores a link that names no
+  // session, lap or reference. Keyed on the request, which App rebuilds once
+  // per new link, not on the lens alone: a second link with the same lens as
+  // the first must still win over a lens picked in the view since.
+  useEffect(() => {
+    if (request === lensAppliedFrom) return;
+    lensAppliedFrom = request;
+    if (request.lens != null) setMapLens(request.lens);
+  }, [request, setMapLens]);
 
   // Load sessions (refreshed when a new lap arrives live)
   useEffect(() => {
@@ -345,12 +370,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         lapsFor === sessionId && laps.length === 0 && selected.length === 0 && refLap == null;
       if (!settled) return;
       setSharedSelection({ sessionId, selectedLapIds: [], refLapId: null });
-      reflectAnalysisSelection({ session: sessionId, channels });
+      reflectAnalysisSelection({ session: sessionId, channels, lens: mapLens });
       return;
     }
     setSharedSelection({ sessionId, selectedLapIds: selected, refLapId: refLap });
-    reflectAnalysisSelection({ session: sessionId, laps: selected, ref: refLap, channels });
-  }, [sessionId, selected, refLap, laps, lapsFor, channelKeys, setSharedSelection]);
+    // The chosen lens, not the one drawn: a link to a lens this comparison
+    // cannot draw yet still names it.
+    reflectAnalysisSelection({
+      session: sessionId,
+      laps: selected,
+      ref: refLap,
+      channels,
+      lens: mapLens,
+    });
+  }, [sessionId, selected, refLap, laps, lapsFor, channelKeys, mapLens, setSharedSelection]);
 
   // Fetch comparison + deviation when the selection or channel set changes.
   // The request always carries the per-corner columns for the Corner Detail
@@ -490,10 +523,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     setLiveZoom(null);
   }, [sessionId, selected, refLap]);
 
-  // How the race line and the lap strip are coloured, and the corner
-  // report's order. View state, not settings: a way of looking at this
-  // comparison rather than a preference.
-  const [mapLens, setMapLens] = useState<MapLens>("inputs");
+  // The corner report's order. View state, not settings: a way of looking
+  // at this comparison rather than a preference.
   const [reportSort, setReportSort] = useState<ReportSort>("track");
   const [mapMaximized, setMapMaximized] = useState(false);
 
@@ -549,6 +580,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // row must keep working when a lap from another session is the yardstick.
   const refSummary =
     laps.find((l) => l.id === refLap) ?? guests.find((l) => l.id === refLap);
+  // Corners the reference took a gear higher than GT7 suggested (#108), from
+  // the corner report the gear panel's shading reads too.
+  const gearChoice = gearHighCount(refEntry?.corner_report);
   const session = sessions?.find((s) => s.id === sessionId) ?? null;
   // The open session's laps have loaded and there are none, and nothing from
   // another session was asked for either.
@@ -761,16 +795,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     [focusLap],
   );
   // Which lenses this comparison can draw: Speed needs the channel (a
-  // packet-A recording has none), Gain / loss a lap to compare. A lens the
-  // map cannot draw is disabled in the control, and a choice that stops
-  // being drawable — the comparison lap toggled off — shows as Inputs, so
-  // the control never names a lens the map is not drawing.
-  const lensAvailable = useMemo<Record<MapLens, boolean>>(
-    () => ({
-      inputs: true,
-      speed: refEntry != null && canDraw("speed", refEntry.series, units, gainSource),
-      gain: refEntry != null && canDraw("gain", refEntry.series, units, gainSource),
-    }),
+  // packet-A recording has none), Gain / loss a lap to compare, the tire
+  // lenses a reference recorded with tire temperatures. A lens the map
+  // cannot draw is disabled in the control, and a choice that is not
+  // drawable — the comparison lap toggled off, or a link's lens on an older
+  // lap — shows as Inputs, so the control never names a lens the map is not
+  // drawing. The choice itself is kept, and takes over once it can be drawn.
+  const lensAvailable = useMemo(
+    () =>
+      Object.fromEntries(
+        LENS_OPTIONS.map((o) => [
+          o.value,
+          refEntry != null && canDraw(o.value, refEntry.series, units, gainSource),
+        ]),
+      ) as Record<MapLens, boolean>,
     [refEntry, units, gainSource],
   );
   const lensShown: MapLens = lensAvailable[mapLens] ? mapLens : "inputs";
@@ -785,6 +823,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     () => (lensData && refEntry ? lensRuns(lensData, refEntry.series.dist) : []),
     [lensData, refEntry],
   );
+
+  // The gearing panel follows the same focus lap, or the reference when no
+  // other lap is loaded, which until the comparison arrives is always: the
+  // ratio table needs only the lap's id, the sawtooth its series. Beside a
+  // focus lap the reference rides along, for the panel to draw behind it
+  // when its gearbox differs.
+  const gearingLap = useMemo<GearingLap | null>(() => {
+    if (refLap == null) return null;
+    const lap = focusLap ?? mapLaps.find((l) => l.isRef);
+    if (!lap) {
+      return { id: refLap, label: lapLabels[String(refLap)] ?? `Lap ${refLap}`, series: null };
+    }
+    return { id: Number(lap.id), label: lap.label, series: lap.entry.series };
+  }, [refLap, focusLap, mapLaps, lapLabels]);
+  const gearingRef = useMemo<GearingLap | null>(() => {
+    const ref = focusLap ? mapLaps.find((l) => l.isRef) : undefined;
+    return ref ? { id: Number(ref.id), label: ref.label, series: ref.entry.series } : null;
+  }, [focusLap, mapLaps]);
 
   // What the strips and the charts' header say the window is.
   const zoomLabel = currentCorner
@@ -1078,21 +1134,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             <span className="section-header">
               Race line{bestTrack ? ` — ${bestTrack}` : ""}
             </span>
-            <Tip content="How the reference line and the lap strip are coloured: by pedal (throttle, brake, coast), by speed, or by where the compared lap gains and loses time against the reference">
-              <span className="inline-flex">
+            <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
+              {/* Five lenses are wider than a phone's map panel: there the
+                  control scrolls sideways rather than being cut off. */}
+              <span className="inline-flex max-w-full overflow-x-auto">
                 <SegmentedControl
                   ariaLabel="Map colouring"
                   size="sm"
                   value={lensShown}
                   onValueChange={setMapLens}
                   options={LENS_OPTIONS.map((o) => ({
-                    ...o,
+                    value: o.value,
+                    label: o.label,
                     disabled: !lensAvailable[o.value],
-                    title: lensAvailable[o.value]
-                      ? undefined
-                      : o.value === "speed"
-                        ? "This recording has no speed channel"
-                        : "Needs a second lap with a time delta against the reference",
+                    title: lensAvailable[o.value] ? undefined : o.needs,
                   }))}
                 />
               </span>
@@ -1313,6 +1368,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               {(refSummary.min_oil_pressure ?? -1) >= 0 && (
                 <Info k="Min oil press." v={`${refSummary.min_oil_pressure!.toFixed(1)} bar`} />
               )}
+              {gearChoice.judged > 0 && (
+                <Info k="Corners a gear high" v={`${gearChoice.high} of ${gearChoice.judged}`} />
+              )}
               {refSummary.event_counts && Object.keys(refSummary.event_counts).length > 0 && (
                 <Info
                   k="Events"
@@ -1371,9 +1429,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             />
           </Panel>
         )}
-        {refLap != null && (
-          <Panel title="Gearing — reference lap">
-            <GearingPanel lapId={refLap} units={units} />
+        {gearingLap && (
+          <Panel title={`Gearing — ${gearingLap.label}`}>
+            <GearingPanel
+              lap={gearingLap}
+              reference={gearingRef}
+              units={units}
+              cursorDist={cursorDist}
+            />
           </Panel>
         )}
         {deviation && deviation.dist.length > 0 && (

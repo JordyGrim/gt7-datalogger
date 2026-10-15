@@ -56,6 +56,32 @@ Notable changes to GT7 Datalogger. The format follows
 - **Two receivers at once.** (#144) Documented: the console streams to
   every client sending heartbeats, so two dataloggers, or a datalogger and
   the phone, can capture the same drive.
+- **Gearing sawtooth.** (#107) Under the Analysis Gearing panel's ratio
+  table, a chart of speed against rpm: a line per gear from standstill to
+  the redline, and the lap's own samples over them coloured by gear, so
+  where each gear was shifted, how far the revs drop across each ratio gap
+  and whether top gear is ever reached all read off one chart. The panel
+  follows the corner report card's focus lap, and draws the reference
+  behind in grey when its gearbox differs. GT7 sends no final drive, so
+  the lines are fitted to the lap's own samples; GT7's top speed stands in
+  when a lap gives no consistent fit.
+- **Suggested gear, recorded and judged.** (#108) The gear GT7 suggests on
+  its HUD, the *→ 3* the Live view's gear widget already showed, is now
+  kept on every lap as the `suggested_gear` sample column. It holds 15
+  where GT7 suggested nothing, and a lap on which it suggested nothing at
+  all keeps no column. The Analysis **Gear** panel draws it dashed beside
+  each lap's gear and shades the corners taken a gear higher, and the
+  playback strip shows it beside the gear. A corner is judged at its
+  slowest point against the last gear GT7 suggested on the way in. The
+  **Tuning** panel counts the reference lap's **corners a gear high**, and
+  the Sessions lap table gains a **Gear high** column for every lap,
+  measured against the session's quickest counting lap.
+  `corner_report` rows and the lap analysis document's `speed` block carry
+  `suggested_gear` and `gear_high`, `GET /api/analysis/gear-choice` serves
+  the per-lap counts, and the CSV export has a Suggested Gear channel. The
+  lap file's version is unchanged. The simulator now suggests gears, and on
+  about half its laps holds a gear too many through one corner. When GT7
+  fills the suggestion has not been checked against a console yet.
 
 ### Changed
 
@@ -63,8 +89,12 @@ Notable changes to GT7 Datalogger. The format follows
   changing it in Settings takes effect without a restart. The API reference
   no longer claims CORS is open to every origin; it never was by default.
 - **The Analysis race line map.** (#102) The reference line is coloured by
-  a lens — Inputs, Speed, or Gain / loss against the compared lap — and
-  drawn as one line rather than a trail of dots. The header's row of
+  a lens — Inputs, Speed, Gain / loss against the compared lap, Tire temp
+  (the hottest tire, on the Live tiles' 55 / 95 °C bands) or F−R temp
+  (front minus rear, even within ±3 °C, full colour from 8) — and drawn as
+  one line rather than a trail of dots. The lens is remembered on the
+  device and carried in the Analysis link as `lens=`; the tire lenses are
+  greyed out on laps recorded before per-corner channels. The header's row of
   toggles is a **Layers** menu with a switch for everything the map draws
   besides the line: the surveyed road, corner numbers, the other laps with
   their apex speeds and brake points, and the markers. Corner numbers are
@@ -85,6 +115,11 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Speed at redline on laps recorded before 0.7.0.** The Gearing panel
+  read under 6 km/h for them: it took the stored top speed as top gear's
+  speed at the redline, and those laps hold a ratio there (#128). The
+  speeds now come from the same fit as the chart (#107), and the top speed
+  is hidden where it is not one.
 - **Auto-discovery finds the console again on a new address.** With no console
   IP set, the heartbeat followed the first console that answered and kept going
   to that address for good, so a PlayStation that came back from rest mode, a

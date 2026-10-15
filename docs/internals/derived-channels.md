@@ -17,6 +17,7 @@ One value per column per tick (~60/s):
 | `brake` | `raw_byte ÷ 2.55` | % |
 | `coast` | `1` if throttle < 1 % **and** brake < 1 % | flag |
 | `gear` | low nibble of the gear byte (15 = neutral) | — |
+| `suggested_gear` | high nibble of the gear byte, as broadcast: the gear GT7 suggests, **15 = no suggestion**. A lap on which GT7 suggested nothing has no such column, and nor do laps recorded before it was kept ([below](#suggested-gear)) | — |
 | `rpm` | raw | rpm |
 | `boost` | `raw − 1.0` (packet stores bar + 1) | bar |
 | `tire_slip` | mean of the four wheel slips | ratio |
@@ -130,6 +131,40 @@ angle cannot be worked out for them after the fact.
 under braking means the wheel is locking; `> 1` under power means it's spinning. Below
 1 m/s car speed the ratio is meaningless, so all four are pinned to `1.0`.
 
+### Suggested gear
+
+The gear byte at 0x90 carries two nibbles: the gear the car is in, and the gear GT7
+suggests on its HUD. Every packet format has both, so `suggested_gear` is recorded on
+every tick like `gear`, and is not an [optional column](#optional-columns). It is kept as
+broadcast, **15 where GT7 suggests nothing**: a sample column holds numbers, and neither
+a lap file nor the importer has a way to say "no value" for one tick. Both nibbles
+count gears from 1; anything that compares them takes a value outside **1–14** as no
+gear (0 is reverse, 15 neutral or no suggestion).
+
+A lap on which no tick holds a suggestion would carry a column of 15s, about 36 KB of
+a two-minute lap that says nothing, so the column is dropped when the lap completes
+(`prune_unsuggested` in `app/processing/laps.py`, which runs on import too). Absent
+therefore means "GT7 suggested nothing on this lap", or a lap recorded before the
+column was kept.
+
+Resampled onto the comparison grid it takes the **nearest** sample's value, like the
+`aids` and `surface` bitmasks: interpolated, halfway between a suggested third and no
+suggestion would be a suggested ninth. `gear` itself is still interpolated, so the
+frontend rounds it wherever it compares the two.
+
+Per corner (`app/processing/corner_metrics.py`, on the reference lap's corners and
+axis):
+
+| Figure | Is |
+| --- | --- |
+| suggested gear | the **last** suggestion in 1–14 from the start of the corner's approach — 250 m before its entry, never back past the previous corner's apex — up to and including its slowest point. Held rather than read at the slowest point, because when GT7 clears the hint has not been checked against a console |
+| gear high | the gear at the slowest point (the sample that gives the minimum speed) is higher than that suggestion. Unknown unless both are known and the gear is in 1–14, so a car in neutral or reverse there is not judged |
+
+Neither is worked out for a corner across the start line. GT7's real behaviour — when
+it fills the nibble, on which cars and modes, whether it ever suggests an upshift and
+whether a HUD setting turns it off — has **not** been checked against a console
+recording; the simulator's suggestion is a stand-in.
+
 ## Per-lap aggregates
 
 Computed once when the lap is saved (`n` = number of samples):
@@ -148,14 +183,24 @@ Computed once when the lap is saved (`n` = number of samples):
 | Clean lap | `off_track_count == 0`; `null` = unknown — distinct from `counts_for_best`, which flags partial pit out-laps |
 
 **Engine health** is tracked as running per-lap extremes rather than per-tick columns
-(these values drift over minutes, not corners):
+(an engine's temperatures move over minutes, not corners):
 
 - `max_water_temp`, `max_oil_temp` — running maxima (°C)
 - `min_oil_pressure` — running minimum (bar), **sampled only while RPM > 1200** so idling
   in the pits doesn't record a misleading low; `−1` means unknown
 
+GT7 appears to hold the two temperatures fixed. Every lap recorded from a console so far
+— 446 laps in 28 cars, July to September 2026 — reads a maximum water temperature of
+exactly 85 °C and oil of 110 °C; only the simulator varies them. So nothing charts them
+across a session (a lap-on-lap trend would be a flat line, #105), and the Tuning panel's
+figures and the alerts' limits matter only if a GT7 update makes them move. Oil pressure
+does vary on real laps, but with revs and incidents (a spin pulls it down) rather than
+with the engine's health.
+
 **Gearing** is captured once per lap from the lap-boundary packet: the non-zero gear
-ratios, the tune's transmission top speed, and the redline (`rpm_alert_max`).
+ratios, GT7's calculated top speed for the car (`calculated_max_speed`, km/h), and the
+redline (`rpm_alert_max`). Laps recorded before 0.7.0 hold `transmission_top_speed` in
+`top_speed` instead, a ratio; see [Gearing panel math](#gearing-panel-math).
 
 ## Frontend-derived channels
 
@@ -179,12 +224,70 @@ when imperial units are selected). Everything else displays in its stored unit.
 
 ## Gearing panel math
 
-The estimated speed at redline for gear *i* assumes the tune's top speed is reached in
-top gear, then scales by ratio:
+Road speed in a gear is engine speed through that gear, the final drive and the tyre:
 
 ```
-speed_i = top_speed × (ratio_top ÷ ratio_i)
+speed_g(rpm) = K × rpm ÷ ratio_g          km/h
 ```
+
+`K` folds the final drive and the tyre's circumference into one figure per car and
+setup, the same for every gear, and it is the one thing the stored gearing lacks: GT7
+broadcasts the gearbox ratios and the redline, and the tire radius on every tick, but
+never the final drive, and a lap keeps no tire radius. The
+[Gearing](../guide/analysis-view.md#gearing) panel draws `speed_g` for each gear from
+0 rpm to the redline, and its speed at redline is where each line ends:
+
+```
+at_redline_g = K × rpm_alert ÷ ratio_g
+```
+
+**K is fitted from the lap.** Over the comparison's series (a sample every 5 m), a
+sample is clean when:
+
+- its gear is within 0.01 of a whole gear from 1 to the number of ratios. The series
+  interpolate gear like any other channel, so a point between two ticks either side of
+  a shift reads 2.4 and is dropped, never rounded into a gear; 0 (reverse) and 15
+  (neutral) are out of range;
+- rpm is at least 0.35 × `rpm_alert` and speed at least 30 km/h, which leaves out the
+  clutch and the idle at a crawl;
+- `tire_slip` is between 0.95 and 1.05, when the lap has the channel: the driven wheels
+  turning with the road. Wheelspin and lockups break the link between rpm and speed.
+
+`K` is the median of `speed × ratio_g ÷ rpm` over the clean samples. The fit is
+accepted only when:
+
+- there are at least 30 clean samples;
+- at least two gears have 10 or more each (one, on a car with a single gear), so there
+  is something to check the scale against. A lap driven all the way round in one gear
+  is not fitted;
+- those gears agree: the largest of their medians is at most 1.15 × the smallest. A
+  gear with fewer than 10 samples, a short burst of first out of a hairpin, still
+  counts towards the median but has no say in this check.
+
+On recorded laps the gears' medians agree to within 13 %. The simulator's rpm does not
+follow its ratios, and its gears come out about 1.5 to 1.95 times apart, which is what the
+check is for.
+
+**Fallback: GT7's top speed.** When the fit is refused, top gear is taken to reach the
+stored top speed at the redline, where `ratio_top` is the smallest ratio:
+
+```
+K = top_speed × ratio_top ÷ rpm_alert
+```
+
+This applies only when `top_speed` is a speed: 30 km/h or more. Laps recorded before
+0.7.0 (#128) store GT7's `transmission_top_speed` there, a unitless figure between
+about 2 and 6. It is not a speed, and it is not the final drive either: the same car on
+two setups stores two different values and fits the same `K`. On those laps a refused
+fit leaves no lines, the table shows "—", and the top speed is not shown.
+
+**The dots** are the same series' samples in whole gears, at most 1,500 a lap. Over
+that, the two samples either side of every gear change are always kept, so the
+sawtooth's tips and drops survive, and evenly spaced samples fill the rest.
+
+**Same gearbox.** The reference lap is drawn behind the focus lap only when their
+gearboxes differ: a different number of gears, any ratio more than 0.001 apart, or a
+different redline.
 
 ## A note on "tiers"
 
