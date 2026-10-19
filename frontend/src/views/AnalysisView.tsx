@@ -118,6 +118,12 @@ let lensAppliedFrom: AnalysisRequest | null = null;
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
+  const [analysisLayout, setAnalysisLayout] = useState<"classic" | "split">("classic");
+  const [quickChannels, setQuickChannels] = useState<[string, string, string]>([
+    "speed",
+    "throttle",
+    "brake",
+  ]);
   const mapFollow = useSettings((s) => s.mapFollow);
   const setMapFollow = useSettings((s) => s.setMapFollow);
   const mapSync = useSettings((s) => s.mapSync);
@@ -1120,6 +1126,13 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         </div>
       )}
 
+      <div
+        className={
+          analysisLayout === "split"
+            ? "grid grid-cols-1 gap-3 lg:grid-cols-2"
+            : ""
+        }
+      >
       {/* 3 — race line map hero */}
       {refEntry && (
         <div
@@ -1134,6 +1147,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             <span className="section-header">
               Race line{bestTrack ? ` — ${bestTrack}` : ""}
             </span>
+            <SegmentedControl
+              ariaLabel="Analysis layout"
+              size="sm"
+              value={analysisLayout}
+              onValueChange={setAnalysisLayout}
+              options={[
+                { value: "classic", label: "Classic" },
+                { value: "split", label: "Split" },
+              ]}
+            />
             <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
               {/* Five lenses are wider than a phone's map panel: there the
                   control scrolls sideways rather than being cut off. */}
@@ -1256,6 +1279,58 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </div>
         </div>
       )}
+
+      {analysisLayout === "split" && compare && (
+        <div className="panel min-w-0 px-3 py-3">
+          <div className="mb-2 text-sm font-semibold">
+            Quick telemetry comparison
+          </div>
+
+          <div className="mb-2 grid grid-cols-3 gap-2">
+            {quickChannels.map((key, index) => (
+              <Select
+                key={index}
+                ariaLabel={`Quick telemetry chart ${index + 1}`}
+                value={key}
+                onValueChange={(value) =>
+                  setQuickChannels((previous) => {
+                    const next: [string, string, string] = [...previous];
+                    next[index] = value;
+                    return next;
+                  })
+                }
+                options={Object.values(CHANNEL_BY_KEY)
+                  .filter(
+                    (channel) =>
+                      channel.key === key ||
+                      !quickChannels.includes(channel.key)
+                  )
+                  .map((channel) => ({
+                    value: channel.key,
+                    label: channel.title,
+                  }))}
+                className="w-full min-w-0 px-2 py-1 text-xs"
+              />
+            ))}
+          </div>
+
+          <StackedCharts
+            data={compare}
+            lapLabels={lapLabels}
+            lapColors={lapColors}
+            units={units}
+            channels={quickChannels
+              .map((key) => CHANNEL_BY_KEY[key])
+              .filter((channel) => channel !== undefined)}
+            onCursorDist={onHoverCursorDist}
+            zoomRange={zoomRange}
+            onZoomChange={setZoomRange}
+            cursorDist={cursorDist}
+            refLapId={refLap != null ? String(refLap) : null}
+          />
+        </div>
+      )}
+      </div>
 
       {compare && (
         <>
