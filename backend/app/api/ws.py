@@ -2,13 +2,15 @@
 
 Traffic is overwhelmingly server-push. The client→server direction carries
 the client protocol's `hello` and `subscribe` (app.protocol: a native app's
-rate, frame and events) and the Race Engineer voice protocol (which browser is
-allowed to speak, and what it did with a callout); anything else a client
-sends is ignored, so pages from older builds — which send pings or nothing at
-all — keep working.
+rate, frame and events), the Race Engineer voice protocol (which browser is
+allowed to speak, and what it did with a callout) and the coaching reference
+(`set_engineer_reference`); anything else a client sends is ignored, so pages
+from older builds — which send pings or nothing at all — keep working.
 
 Deliberately unauthenticated even when GT7_ADMIN_TOKEN is set: claiming voice
-output is a driver-device action on a read-only surface, not an admin one.
+output, and picking the lap the coaching compares against, are driver-device
+actions on a read-only surface, not admin ones — neither changes anything
+stored, and a chosen reference lasts only until the car or circuit changes.
 """
 
 from __future__ import annotations
@@ -91,6 +93,15 @@ def _handle_client_message(service: TelemetryService, ws: WebSocket, raw: str) -
             # The difference between "the browser said no" and "no idea".
             _text(data, "reason", limit=120),
         )
+    elif kind == "set_engineer_reference":
+        # A stored lap's id to chase, or null for the session best.
+        lap_id = data.get("lap_id")
+        if lap_id is not None and (type(lap_id) is not int or lap_id <= 0):
+            service.client_error(
+                ws, "set_engineer_reference", "lap_id: a positive integer or null"
+            )
+            return
+        service.request_engineer_reference(ws, lap_id)
 
 
 @router.websocket("/ws/live")

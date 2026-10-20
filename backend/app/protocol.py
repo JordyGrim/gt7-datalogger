@@ -107,6 +107,19 @@ class VoiceClaimMessage(_Strict):
     data: dict[str, Any]
 
 
+class EngineerReference(_Strict):
+    lap_id: int | None = Field(
+        gt=0,
+        description="A stored lap of the circuit being driven to chase; null = the "
+        "session's fastest lap. Refusals come back as `error`.",
+    )
+
+
+class EngineerReferenceMessage(_Strict):
+    type: Literal["set_engineer_reference"]
+    data: EngineerReference
+
+
 # --- server -> client -------------------------------------------------------
 
 
@@ -268,7 +281,11 @@ class OtherMessage(_Strict):
 
 
 ClientMessage = (
-    HelloMessage | SubscribeMessage | ClientCapabilitiesMessage | VoiceClaimMessage
+    HelloMessage
+    | SubscribeMessage
+    | ClientCapabilitiesMessage
+    | VoiceClaimMessage
+    | EngineerReferenceMessage
 )
 ServerMessage = (
     WelcomeMessage | ErrorMessage | TelemetryMessage | StatusMessage | LapMessage | OtherMessage

@@ -55,7 +55,7 @@ its own.
 
 `/engineer` is a minimal standalone surface: the voice state and its checks, the
 **Last callout** (with **Replay**), **What you'll hear** (this device's verbosity and
-categories), **Voice** (voice, volume, rate, pitch, **On-screen captions** and **Quiet
+categories), **Coaching reference** (see [Chasing a lap](#chasing-a-lap)), **Voice** (voice, volume, rate, pitch, **On-screen captions** and **Quiet
 when tab is hidden**), and **Callouts this session** — every callout received, shown
 even when this device is not the one speaking. It is intended for
 
@@ -163,6 +163,23 @@ callouts compare laps *by position on the track*, which is meaningless until sev
 laps agree on the distance — usually by lap three. Until then the coaching category
 is simply quiet, and `/engineer` says *Coaching needs a few laps that agree on the
 track distance first*.
+
+## Chasing a lap
+
+Coaching compares you against your fastest lap of the session by default. To chase
+something else, open **Coaching reference** on `/engineer`, pick **Chase a lap**, and
+choose one of the laps stored at the circuit you are driving — fastest first, any
+session, any car. Coaching then compares every lap against that one.
+
+- A lap of yours that beats it takes over: you chase your own new best from then on.
+  If that lap later stops counting (ruled out by hand, or found to be partial), the
+  chase falls back to the lap you chose.
+- A race restart keeps the chase. It resumes once the circuit is identified again on
+  the first lap.
+- Changing car, or a new session at another circuit, ends it and coaching goes back to
+  the session best.
+- **Session best** goes back by hand. Nothing about the choice is saved: restarting the
+  datalogger also goes back to the session best.
 
 ## When it stays quiet
 
