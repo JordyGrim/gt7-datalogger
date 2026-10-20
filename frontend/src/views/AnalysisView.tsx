@@ -1262,6 +1262,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               layers={mapLayers}
               brakeMarks={brakeMarks}
               laps={mapLaps}
+              channels={channelDefs}
               cursorDist={cursorDist}
               zoomRange={shownZoom}
               animate={liveZoom == null}
