@@ -38,6 +38,7 @@ import { openingSession, quickestCounting, resolveReference, resolveSelected } f
 import { api } from "@/lib/api";
 import {
   CHANNEL_BY_KEY,
+  CHANNELS,
   columnsForChannels,
   isDefaultChannelSet,
   loadChannelKeys,
@@ -118,12 +119,10 @@ let lensAppliedFrom: AnalysisRequest | null = null;
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
-  const [analysisLayout, setAnalysisLayout] = useState<"classic" | "split">("classic");
-  const [quickChannels, setQuickChannels] = useState<[string, string, string]>([
-    "speed",
-    "throttle",
-    "brake",
-  ]);
+  const splitView = useSettings((s) => s.splitView);
+  const setSplitView = useSettings((s) => s.setSplitView);
+  const splitChannels = useSettings((s) => s.splitChannels);
+  const setSplitChannel = useSettings((s) => s.setSplitChannel);
   const mapFollow = useSettings((s) => s.mapFollow);
   const setMapFollow = useSettings((s) => s.setMapFollow);
   const mapSync = useSettings((s) => s.mapSync);
@@ -398,13 +397,15 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     () => [
       ...new Set([
         ...columnsForChannels(channelKeys),
+        // The split view's charts pick from every channel, not the stack's.
+        ...(splitView ? columnsForChannels(splitChannels) : []),
         ...CORNER_COLUMNS,
         ...MAP_COLUMNS,
         ...GG_COLUMNS,
         ...PLAYBACK_COLUMNS,
       ]),
     ],
-    [channelKeys],
+    [channelKeys, splitView, splitChannels],
   );
   useEffect(() => {
     if (refLap == null || selected.length === 0) {
@@ -582,6 +583,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   }, [laps, guests, refLap]);
 
   const refEntry = compare?.laps[String(refLap)];
+  // Split view needs a map to sit beside; on a narrow screen it is off, as
+  // the charts would only stack above the same charts again.
+  const split = splitView && refEntry != null && compare != null;
   // The reference may be a guest — the tuning panel and the class-benchmark
   // row must keep working when a lap from another session is the yardstick.
   const refSummary =
@@ -1126,210 +1130,193 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         </div>
       )}
 
-      <div
-        className={
-          analysisLayout === "split"
-            ? "grid grid-cols-1 gap-3 lg:grid-cols-2"
-            : ""
-        }
-      >
-      {/* 3 — race line map hero */}
-      {refEntry && (
-        <div
-          className="overflow-hidden rounded-panel"
-          style={{
-            background:
-              "linear-gradient(180deg, var(--color-panel), color-mix(in srgb, var(--color-panel) 82%, #0c0d16))",
-            boxShadow: "0 0 0 1px var(--color-hairline)",
-          }}
-        >
-          <div className="flex flex-wrap items-center gap-3.5 px-4 py-2.5">
-            <span className="section-header">
-              Race line{bestTrack ? ` — ${bestTrack}` : ""}
-            </span>
-            <SegmentedControl
-              ariaLabel="Analysis layout"
-              size="sm"
-              value={analysisLayout}
-              onValueChange={setAnalysisLayout}
-              options={[
-                { value: "classic", label: "Classic" },
-                { value: "split", label: "Split" },
-              ]}
-            />
-            <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
-              {/* Five lenses are wider than a phone's map panel: there the
-                  control scrolls sideways rather than being cut off. */}
-              <span className="inline-flex max-w-full overflow-x-auto">
-                <SegmentedControl
-                  ariaLabel="Map colouring"
-                  size="sm"
-                  value={lensShown}
-                  onValueChange={setMapLens}
-                  options={LENS_OPTIONS.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                    disabled: !lensAvailable[o.value],
-                    title: lensAvailable[o.value] ? undefined : o.needs,
-                  }))}
-                />
+      {/* 3 — race line map hero, and in split view three charts beside it */}
+      <div className={split ? "grid items-start gap-3 lg:grid-cols-2" : ""}>
+        {refEntry && (
+          <div
+            className="overflow-hidden rounded-panel"
+            style={{
+              background:
+                "linear-gradient(180deg, var(--color-panel), color-mix(in srgb, var(--color-panel) 82%, #0c0d16))",
+              boxShadow: "0 0 0 1px var(--color-hairline)",
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-3.5 px-4 py-2.5">
+              <span className="section-header">
+                Race line{bestTrack ? ` — ${bestTrack}` : ""}
               </span>
-            </Tip>
-            <span className="flex flex-wrap gap-3 text-[10.5px] text-ink-dim [&>span]:whitespace-nowrap">
-              {(lensData?.legend ?? []).map((entry) => (
-                <span key={entry.label} className="inline-flex items-center gap-1.5">
-                  <i className="inline-block h-0.5 w-3.5" style={{ backgroundColor: entry.color }} />
-                  {entry.label}
+              <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
+                {/* Five lenses are wider than a phone's map panel: there the
+                    control scrolls sideways rather than being cut off. */}
+                <span className="inline-flex max-w-full overflow-x-auto">
+                  <SegmentedControl
+                    ariaLabel="Map colouring"
+                    size="sm"
+                    value={lensShown}
+                    onValueChange={setMapLens}
+                    options={LENS_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: o.label,
+                      disabled: !lensAvailable[o.value],
+                      title: lensAvailable[o.value] ? undefined : o.needs,
+                    }))}
+                  />
                 </span>
-              ))}
-              {mapKey.map((entry) => (
-                <span
-                  key={entry.label}
-                  className="inline-flex items-center gap-1.5 text-ink-faint"
-                  title={entry.title}
-                >
-                  {entry.glyph === "pin" ? (
-                    <i className="inline-block h-2 w-2 rotate-45 rounded-full rounded-br-none bg-ink-dim" />
-                  ) : (
-                    <span style={{ color: entry.color ?? "var(--color-ink)" }}>{entry.glyph}</span>
-                  )}
-                  {entry.label}
-                </span>
-              ))}
-            </span>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-              {/* Only meaningful with something to sync against. */}
-              {mapLaps.length > 1 && (
-                <Tip content="Where the other laps' cars are drawn: where each was after the same lap time as the reference (time — the gap, as distance on track), or level with the reference car (position — where the charts compare them)">
-                  <span className="mr-1 inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
-                    sync
-                    <SegmentedControl
-                      ariaLabel="Race line sync"
-                      size="sm"
-                      value={mapSync}
-                      onValueChange={setMapSync}
-                      options={[
-                        { value: "time", label: "Time" },
-                        { value: "position", label: "Position" },
-                      ]}
-                    />
+              </Tip>
+              <span className="flex flex-wrap gap-3 text-[10.5px] text-ink-dim [&>span]:whitespace-nowrap">
+                {(lensData?.legend ?? []).map((entry) => (
+                  <span key={entry.label} className="inline-flex items-center gap-1.5">
+                    <i className="inline-block h-0.5 w-3.5" style={{ backgroundColor: entry.color }} />
+                    {entry.label}
                   </span>
+                ))}
+                {mapKey.map((entry) => (
+                  <span
+                    key={entry.label}
+                    className="inline-flex items-center gap-1.5 text-ink-faint"
+                    title={entry.title}
+                  >
+                    {entry.glyph === "pin" ? (
+                      <i className="inline-block h-2 w-2 rotate-45 rounded-full rounded-br-none bg-ink-dim" />
+                    ) : (
+                      <span style={{ color: entry.color ?? "var(--color-ink)" }}>{entry.glyph}</span>
+                    )}
+                    {entry.label}
+                  </span>
+                ))}
+              </span>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                {/* Only meaningful with something to sync against. */}
+                {mapLaps.length > 1 && (
+                  <Tip content="Where the other laps' cars are drawn: where each was after the same lap time as the reference (time — the gap, as distance on track), or level with the reference car (position — where the charts compare them)">
+                    <span className="mr-1 inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
+                      sync
+                      <SegmentedControl
+                        ariaLabel="Race line sync"
+                        size="sm"
+                        value={mapSync}
+                        onValueChange={setMapSync}
+                        options={[
+                          { value: "time", label: "Time" },
+                          { value: "position", label: "Position" },
+                        ]}
+                      />
+                    </span>
+                  </Tip>
+                )}
+                <LayersMenu layers={mapLayers} available={availableLayers} onToggle={setMapLayer} />
+                <Tip content="Three charts of your choosing beside the map instead of below it, on a screen wide enough for both. The full chart stack stays below">
+                  <button
+                    onClick={() => setSplitView(!splitView)}
+                    aria-pressed={splitView}
+                    className={`hidden rounded border px-2.5 py-0.5 text-[10.5px] transition-colors lg:inline-block ${
+                      splitView
+                        ? "border-accent bg-accent/14 text-accent-300"
+                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    Split
+                  </button>
                 </Tip>
-              )}
-              <LayersMenu layers={mapLayers} available={availableLayers} onToggle={setMapLayer} />
-              <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
-                <button
-                  onClick={() => setMapFollow(!mapFollow)}
-                  aria-pressed={mapFollow}
-                  className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
-                    mapFollow
-                      ? "border-accent bg-accent/14 text-accent-300"
-                      : "border-edge text-ink-dim hover:border-accent hover:text-accent"
-                  }`}
-                >
-                  Follow
-                </button>
-              </Tip>
-              <Tip content="Open the map full screen">
-                <button
-                  onClick={() => setMapMaximized(true)}
-                  aria-label="Maximize the race line map"
-                  className="rounded border border-edge px-[7px] py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
-                >
-                  ⤢
-                </button>
-              </Tip>
+                <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
+                  <button
+                    onClick={() => setMapFollow(!mapFollow)}
+                    aria-pressed={mapFollow}
+                    className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                      mapFollow
+                        ? "border-accent bg-accent/14 text-accent-300"
+                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    Follow
+                  </button>
+                </Tip>
+                <Tip content="Open the map full screen">
+                  <button
+                    onClick={() => setMapMaximized(true)}
+                    aria-label="Maximize the race line map"
+                    className="rounded border border-edge px-[7px] py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
+                  >
+                    ⤢
+                  </button>
+                </Tip>
+              </div>
+            </div>
+            <RaceLineMap
+              hero
+              follow={mapFollow}
+              sync={mapSync}
+              layers={mapLayers}
+              brakeMarks={brakeMarks}
+              laps={mapLaps}
+              cursorDist={cursorDist}
+              zoomRange={shownZoom}
+              animate={liveZoom == null}
+              outline={outline}
+              onZoomChange={setZoomRange}
+              onCursorDist={onHoverCursorDist}
+              lens={lensData}
+              corners={refCorners}
+              focusId={focusLap?.id ?? null}
+              units={units}
+              maximized={mapMaximized}
+              onMaximizedChange={setMapMaximized}
+            />
+            {/* The lap strip: the line unrolled, with the track's sectors and
+                the corners on it, and the zoom window to drag about. */}
+            <div className="border-t border-hairline px-4 pb-1 pt-2">
+              <LapStrip
+                length={refLength}
+                runs={stripRuns}
+                sectors={sectors}
+                corners={refCorners}
+                zoomRange={shownZoom}
+                onZoomChange={setZoomRange}
+                onLiveZoom={setLiveZoom}
+                cursorDist={cursorDist}
+                onCursorDist={onHoverCursorDist}
+                units={units}
+              />
             </div>
           </div>
-          <RaceLineMap
-            hero
-            follow={mapFollow}
-            sync={mapSync}
-            layers={mapLayers}
-            brakeMarks={brakeMarks}
-            laps={mapLaps}
-            cursorDist={cursorDist}
-            zoomRange={shownZoom}
-            animate={liveZoom == null}
-            outline={outline}
-            onZoomChange={setZoomRange}
-            onCursorDist={onHoverCursorDist}
-            lens={lensData}
-            corners={refCorners}
-            focusId={focusLap?.id ?? null}
-            units={units}
-            maximized={mapMaximized}
-            onMaximizedChange={setMapMaximized}
-          />
-          {/* The lap strip: the line unrolled, with the track's sectors and
-              the corners on it, and the zoom window to drag about. */}
-          <div className="border-t border-hairline px-4 pb-1 pt-2">
-            <LapStrip
-              length={refLength}
-              runs={stripRuns}
-              sectors={sectors}
-              corners={refCorners}
-              zoomRange={shownZoom}
-              onZoomChange={setZoomRange}
-              onLiveZoom={setLiveZoom}
-              cursorDist={cursorDist}
-              onCursorDist={onHoverCursorDist}
-              units={units}
-            />
-          </div>
-        </div>
-      )}
+        )}
 
-      {analysisLayout === "split" && compare && (
-        <div className="panel min-w-0 px-3 py-3">
-          <div className="mb-2 text-sm font-semibold">
-            Quick telemetry comparison
-          </div>
-
-          <div className="mb-2 grid grid-cols-3 gap-2">
-            {quickChannels.map((key, index) => (
-              <Select
-                key={index}
-                ariaLabel={`Quick telemetry chart ${index + 1}`}
-                value={key}
-                onValueChange={(value) =>
-                  setQuickChannels((previous) => {
-                    const next: [string, string, string] = [...previous];
-                    next[index] = value;
-                    return next;
-                  })
-                }
-                options={Object.values(CHANNEL_BY_KEY)
-                  .filter(
-                    (channel) =>
-                      channel.key === key ||
-                      !quickChannels.includes(channel.key)
-                  )
-                  .map((channel) => ({
-                    value: channel.key,
-                    label: channel.title,
-                  }))}
-                className="w-full min-w-0 px-2 py-1 text-xs"
+        {split && (
+          <div className="panel hidden min-w-0 lg:block">
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+              <span className="section-header">Beside the map</span>
+              <span className="ml-auto flex min-w-0 flex-wrap justify-end gap-1.5">
+                {splitChannels.map((key, index) => (
+                  <Select
+                    key={index}
+                    ariaLabel={`Chart ${index + 1} beside the map`}
+                    value={key}
+                    onValueChange={(value) => setSplitChannel(index, value)}
+                    // No channel twice: each option is free or this chart's own.
+                    options={CHANNELS.filter(
+                      (channel) => channel.key === key || !splitChannels.includes(channel.key),
+                    ).map((channel) => ({ value: channel.key, label: channel.title }))}
+                    className="max-w-[11rem] px-2 py-0.5 text-[11px]"
+                  />
+                ))}
+              </span>
+            </div>
+            <div className="border-t border-hairline px-4 pb-3">
+              <StackedCharts
+                data={compare}
+                lapLabels={lapLabels}
+                lapColors={lapColors}
+                units={units}
+                channels={splitChannels.map((key) => CHANNEL_BY_KEY[key]).filter(Boolean)}
+                onCursorDist={onHoverCursorDist}
+                zoomRange={zoomRange}
+                onZoomChange={setZoomRange}
+                cursorDist={cursorDist}
+                refLapId={refLap != null ? String(refLap) : null}
               />
-            ))}
+            </div>
           </div>
-
-          <StackedCharts
-            data={compare}
-            lapLabels={lapLabels}
-            lapColors={lapColors}
-            units={units}
-            channels={quickChannels
-              .map((key) => CHANNEL_BY_KEY[key])
-              .filter((channel) => channel !== undefined)}
-            onCursorDist={onHoverCursorDist}
-            zoomRange={zoomRange}
-            onZoomChange={setZoomRange}
-            cursorDist={cursorDist}
-            refLapId={refLap != null ? String(refLap) : null}
-          />
-        </div>
-      )}
+        )}
       </div>
 
       {compare && (

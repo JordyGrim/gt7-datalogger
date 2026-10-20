@@ -18,6 +18,10 @@ Notable changes to GT7 Datalogger. The format follows
   session archive and (`wheel_angle`, as "Front Wheel Angle") the CSV export;
   the lap file stays at version 2. Laps recorded without packet C, and every
   lap stored before, have neither. The simulator sends both.
+- **Split view in Analysis.** **Split**, beside **Follow** on the race line map,
+  puts three charts of your choosing next to the map on a wide screen, sharing
+  its cursor and zoom; the full chart stack stays below. Remembered on this
+  device. Contributed by @Marstiphal (#156).
 
 ## [0.8.0] - 2026-10-15
 
