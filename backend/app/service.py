@@ -165,6 +165,10 @@ class TelemetryService:
         # one that held the claim (restored when the same page reconnects).
         self._active_voice_client = ""
         self._last_voice_client = ""
+        # The latest coaching-reference request not yet applied, and the task
+        # applying them (request_engineer_reference).
+        self._reference_request: tuple[WebSocket, int | None] | None = None
+        self._reference_task: asyncio.Task[None] | None = None
         self._session_best_ms: int | None = None
         self._prev_best_ms: int | None = None
         # Lap number the delta reference came from, so a later partial lap
@@ -382,6 +386,8 @@ class TelemetryService:
         await self.sync.stop()
         await self.rejudge.stop()
         tasks = [c.task for c in self._clients.values() if c.task]
+        if self._reference_task is not None:
+            tasks.append(self._reference_task)
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -506,6 +512,8 @@ class TelemetryService:
         if self.survey.active and not self.survey.track_locked:
             self.survey.set_track("")
         self.engineer.on_session(info, self.session_id)
+        # A new car ends a chase; pages showing it must hear so.
+        self.publish_engineer_status()
         self.track_name = ""
         self._session_best_ms = None
         self._prev_best_ms = None
@@ -600,7 +608,9 @@ class TelemetryService:
         )
 
         if self.engineer_active:
-            self.engineer.ctx.track_name = self.track_name
+            # Before anything else: a chase carried over a restart resumes or
+            # ends on which circuit this turns out to be.
+            await self.engineer.on_track(self.track_name)
             # Lining the lap up with the coaching reference is a walk along
             # its whole path: off the event loop, before the detectors run.
             await self.engineer.prepare_lap(lap)
@@ -608,6 +618,8 @@ class TelemetryService:
             # Corner detection for coaching runs off the event loop; a lap
             # boundary is the only place it can afford to happen.
             await self.engineer.refresh_reference()
+            # The lap may have taken over a chase, or made coaching ready.
+            self.publish_engineer_status()
 
         summary = {
             "id": lap_id,
@@ -665,6 +677,7 @@ class TelemetryService:
             )
             if self.engineer_active:
                 await self.engineer.refresh_reference()
+                self.publish_engineer_status()
 
     async def _reload_best_ref(self) -> None:
         """Point the live delta at the session's fastest counting lap.
@@ -1129,11 +1142,77 @@ class TelemetryService:
             if c.client_id
         ]
 
+    def request_engineer_reference(self, ws: WebSocket, lap_id: int | None) -> None:
+        """A page asked to coach against a stored lap, or (None) the session best.
+
+        Loading a lap is a database read and a decode, so it runs as a task
+        rather than in the socket's receive loop. Requests that arrive while
+        one is being applied collapse into the latest: a page clicking through
+        laps, or a client sending a stream of them, costs one load at a time.
+        """
+        self._reference_request = (ws, lap_id)
+        if self._reference_task is None or self._reference_task.done():
+            self._reference_task = asyncio.create_task(self._apply_reference_requests())
+
+    async def _apply_reference_requests(self) -> None:
+        while self._reference_request is not None:
+            ws, lap_id = self._reference_request
+            self._reference_request = None
+            try:
+                await self.select_engineer_reference(lap_id)
+            except ValueError as exc:
+                self.client_error(ws, "set_engineer_reference", str(exc))
+            except Exception:  # noqa: BLE001 - one bad request must not stop the next
+                log.warning("could not change the coaching reference", exc_info=True)
+                self.client_error(ws, "set_engineer_reference", "Could not load that lap")
+
+    async def select_engineer_reference(self, lap_id: int | None) -> None:
+        """Coach against a stored lap of this circuit, or (None) the session best.
+
+        ValueError says why a lap can't be chased. The lap is checked and read
+        before the session lock is taken — the read and the decode would hold
+        up the capture pipeline — and the circuit is checked again under it,
+        in case a new session started meanwhile.
+        """
+        track = self.track_name
+        samples: dict[str, list[float]] = {}
+        time_ms = 0
+        if lap_id is not None:
+            if not track:
+                raise ValueError("The circuit hasn't been identified yet")
+            lap = await self.repo.get_lap(lap_id, with_samples=False)
+            if lap is None:
+                raise ValueError("That lap no longer exists")
+            session = await self.repo.get_session(lap["session_id"])
+            if session is None or session["track_name"] != track:
+                raise ValueError("That lap was driven at another circuit")
+            if not lap["counts_for_best"]:
+                raise ValueError("That lap doesn't count as a full lap")
+            raw = await self.repo.lap_samples_json(lap_id)
+            if raw is not None:
+                samples = await asyncio.to_thread(decode_samples, raw)
+            time_ms = lap["time_ms"]
+        async with self.session_lock:
+            if lap_id is None:
+                self.engineer.select_session_best_reference()
+            else:
+                if self.track_name != track:
+                    raise ValueError("The circuit changed — pick the lap again")
+                self.engineer.ctx.track_name = track
+                self.engineer.select_chase_reference(lap_id, time_ms, samples)
+            await self.engineer.refresh_reference()
+        self.publish_engineer_status()
+
     def engineer_status(self) -> dict[str, Any]:
         return {
             "enabled": self.engineer.enabled,
             "active": self.engineer_active,
             "verbosity": self.engineer.verbosity,
+            # What coaching compares against: "session_best", or "chase" with
+            # the lap being chased (lap id null once a lap of yours took over).
+            "reference_mode": self.engineer.reference_mode,
+            "reference_lap_id": self.engineer.reference_lap_id,
+            "reference_time_ms": self.engineer.reference_time_ms,
             # What the server will actually send. Clients use this to grey out
             # categories they could never receive.
             "categories": [
@@ -1266,6 +1345,9 @@ class TelemetryService:
         session's rows are gone; the next packet opens a new session."""
         if self.processor.session is not None:
             self.engineer.on_session(self.processor.session)
+        # The lap being chased may be among the rows just deleted.
+        self.engineer.select_session_best_reference()
+        self.publish_engineer_status()
         self.processor = LapProcessor(
             on_lap=self._on_lap,
             on_session=self._on_session,

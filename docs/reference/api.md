@@ -196,7 +196,9 @@ Server → browser:
   `metadata`. Sent to every client; only the active speaker should voice it.
 - **`voice_output_status`** — `{active_client_id}`: which browser may speak.
 - **`race_engineer_status`** — feature enabled/active, verbosity, emitted categories,
-  and the connected voice-capable clients.
+  `coaching_ready`, the connected voice-capable clients, and the coaching reference:
+  `reference_mode` (`session_best` or `chase`), and while chasing `reference_lap_id`
+  (null once a lap driven since took over) and `reference_time_ms`.
 
 Browser → server (Race Engineer only; never token-gated, and unparseable messages are
 ignored so older pages keep working):
@@ -207,6 +209,12 @@ ignored so older pages keep working):
 | `claim_voice_output` | `client_id` |
 | `release_voice_output` | `client_id` |
 | `voice_callout_ack` | `callout_id`, `client_id`, `status`, `spoken_at_ms`, `reason?` |
+| `set_engineer_reference` | `lap_id`: a stored lap of the current circuit to chase, or `null` for the session best |
+
+A `set_engineer_reference` the server can't follow (an unknown lap, another circuit's,
+one that doesn't count, or the circuit not identified yet) is answered with an `error`
+whose `request` is `set_engineer_reference`; one it follows is answered with a
+`race_engineer_status` to every client.
 
 Ack statuses: `spoken`, `expired`, `duplicate`, `disabled`, `category_disabled`,
 `not_active_speaker`, `interrupted` (stopped on purpose — a critical callout, a

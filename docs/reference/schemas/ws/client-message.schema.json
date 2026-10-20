@@ -21,6 +21,48 @@
       "title": "ClientCapabilitiesMessage",
       "type": "object"
     },
+    "EngineerReference": {
+      "additionalProperties": false,
+      "properties": {
+        "lap_id": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A stored lap of the circuit being driven to chase; null = the session's fastest lap. Refusals come back as `error`.",
+          "title": "Lap Id"
+        }
+      },
+      "required": [
+        "lap_id"
+      ],
+      "title": "EngineerReference",
+      "type": "object"
+    },
+    "EngineerReferenceMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/EngineerReference"
+        },
+        "type": {
+          "const": "set_engineer_reference",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "EngineerReferenceMessage",
+      "type": "object"
+    },
     "Hello": {
       "additionalProperties": true,
       "properties": {
@@ -183,6 +225,9 @@
     },
     {
       "$ref": "#/$defs/VoiceClaimMessage"
+    },
+    {
+      "$ref": "#/$defs/EngineerReferenceMessage"
     }
   ],
   "title": "GT7 Datalogger live client \u2192 server message",

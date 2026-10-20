@@ -238,6 +238,25 @@ Distances and speeds are spoken in the units of `GT7_RACE_ENGINEER_UNITS`
 (`ctx.units`). It is a server setting because the text is worded server-side; the
 dashboard's own km/h-vs-mph toggle only affects what is displayed.
 
+### The reference lap
+
+By default the reference is the session's fastest counting lap (`reference_mode`
+`session_best`). A driver can chase a stored lap instead (`chase`, from
+`set_engineer_reference`): `TelemetryService.select_engineer_reference` checks it was
+driven at the identified circuit and counts, reads and decodes its samples before
+taking `session_lock`, and hands them to `RaceEngineerManager.select_chase_reference`.
+The chosen lap is the chase's floor; a quicker counting lap of the session takes over,
+and if that lap stops counting `_chase_settle` falls back to the quickest of the floor
+and what still counts — the same rule `apply_best_override` applies to the session
+best.
+
+A chase belongs to the car and circuit it was chosen with. `on_session` ends it on a
+new car; on a restart in the same car it keeps whatever was being chased as the new
+floor and parks it until `on_track`, called before each lap is processed, sees the
+circuit identified: the same circuit resumes it, another ends it. Requests are
+applied one at a time by a single task, latest wins, so a stream of them costs one
+lap load at a time. Nothing is persisted.
+
 ## WebSocket protocol
 
 `/ws/live` gained a client → server direction. Anything unparseable is ignored, so
@@ -251,7 +270,7 @@ Server → browser:
 | --- | --- |
 | `voice_callout` | the `VoiceCallout` (id, event_type, text, category, priority, ttl, interrupt, dedupe key, `message_key`/`message_args`, metadata) |
 | `voice_output_status` | `{active_client_id}` |
-| `race_engineer_status` | enabled/active, verbosity, categories, `coaching_ready`, connected voice clients |
+| `race_engineer_status` | enabled/active, verbosity, categories, `coaching_ready`, connected voice clients, `reference_mode`/`reference_lap_id`/`reference_time_ms` |
 
 Browser → server:
 
@@ -261,6 +280,7 @@ Browser → server:
 | `claim_voice_output` | `{client_id}` |
 | `release_voice_output` | `{client_id}` |
 | `voice_callout_ack` | `{callout_id, client_id, status, spoken_at_ms}` |
+| `set_engineer_reference` | `{lap_id}` — a stored lap to chase, or null for the session best |
 
 Callouts travel on the **event lane** of the per-client queue (never dropped, unlike
 telemetry frames): staleness is handled by expiry, not by dropping messages.

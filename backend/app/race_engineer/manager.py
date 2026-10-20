@@ -89,6 +89,26 @@ class RaceEngineerManager:
         self._seq = 0
         self._pending_reference: dict[str, list[float]] | None = None
         self._reference_lap: int | None = None
+        # What coaching compares against: the session's fastest counting lap
+        # ("session_best", the default), or a stored lap the driver chose to
+        # chase ("chase"), which a quicker lap of their own then takes over
+        # from. Runtime only — nothing about it is saved.
+        self.reference_mode = "session_best"
+        # The lap being chased: its database id (None for one driven since,
+        # which the engineer knows only by its samples) and its time.
+        self.reference_lap_id: int | None = None
+        self.reference_time_ms: int | None = None
+        # What a chase falls back to when the lap that took over stops
+        # counting: the chosen lap, or after a restart whatever was being
+        # chased when it happened. (lap id, time, samples).
+        self._chase_base: tuple[int | None, int, dict[str, list[float]]] | None = None
+        self._chase_samples: dict[str, list[float]] | None = None
+        # A chase belongs to the car and circuit it was chosen with. A restart
+        # in the same car keeps it, parked until the circuit is identified
+        # again: the same one resumes it, another ends it.
+        self._chase_car_id: int | None = None
+        self._chase_track = ""
+        self._chase_confirmed = False
         # The lap about to be reported, already placed on the reference's
         # axis by prepare_lap: (its samples, where they were placed).
         self._prepared: tuple[dict[str, list[float]], LapOnAxis] | None = None
@@ -204,6 +224,10 @@ class RaceEngineerManager:
         # a lap the user ruled in or out keeps that ruling here too (#74).
         if lap.invalidated_best:
             self._reflag(set(lap.excluded_lap_numbers))
+            if self.reference_mode == "chase":
+                # The lap that took over the chase may be the one that stopped
+                # counting.
+                self._chase_settle()
 
         # Detectors compare against the best BEFORE this lap; a best that
         # already includes it can never show an improvement.
@@ -219,7 +243,17 @@ class RaceEngineerManager:
         candidates = [t for t in (before, record.time_ms if record.counts_for_best else None)
                       if t is not None]
         self.ctx.best_lap_ms = min(candidates) if candidates else None
-        if record.counts_for_best and self.ctx.best_lap_ms == record.time_ms:
+        if self.reference_mode == "chase":
+            # Only a quicker lap that counts takes over from the one chased.
+            if (
+                self._chase_confirmed
+                and record.counts_for_best
+                and record.samples.get("dist")
+                and self.reference_time_ms is not None
+                and record.time_ms < self.reference_time_ms
+            ):
+                self._chase_adopt(None, record.time_ms, record.samples, record.number)
+        elif record.counts_for_best and self.ctx.best_lap_ms == record.time_ms:
             self._pending_reference = record.samples
             self._reference_lap = record.number
         return out
@@ -232,11 +266,22 @@ class RaceEngineerManager:
         which sees the whole session where this history is capped. The
         coaching reference follows the best: an excluded reference gives way
         to the fastest lap still counting, and a lap ruled back in takes over
-        if it is quicker. Call refresh_reference afterwards to adopt it.
+        if it is quicker. A chase follows the same rule with the chosen lap as
+        its floor. Call refresh_reference afterwards to adopt it.
         """
         self._reflag(excluded)
         self.ctx.best_lap_ms = best_ms
-        best = min(
+        if self.reference_mode == "chase":
+            self._chase_settle()
+            return
+        best = self._session_fastest()
+        if best is not None and best.number != self._reference_lap:
+            self._pending_reference = best.samples
+            self._reference_lap = best.number
+
+    def _session_fastest(self) -> LapRecord | None:
+        """This session's fastest lap that counts and can be placed on."""
+        return min(
             (
                 rec
                 for rec in self.ctx.laps
@@ -247,9 +292,6 @@ class RaceEngineerManager:
             key=lambda rec: rec.time_ms,
             default=None,
         )
-        if best is not None and best.number != self._reference_lap:
-            self._pending_reference = best.samples
-            self._reference_lap = best.number
 
     def _reflag(self, excluded: set[int]) -> None:
         """Bring this session's lap history in line with which laps count."""
@@ -282,7 +324,9 @@ class RaceEngineerManager:
         """Race restart, car change or a new session: forget per-race state.
 
         Lap history survives on purpose (see MAX_LAP_HISTORY) — everything
-        else, including the reference lap and every dedupe key, does not.
+        else, including the reference lap and every dedupe key, does not. A
+        chase survives a restart in the same car (see on_track); a new car
+        ends it.
         """
         self.ctx.session_seq += 1
         self.ctx.session_id = session_id
@@ -294,12 +338,119 @@ class RaceEngineerManager:
         self.ctx.span_confirmed = False
         self._pending_reference = None
         self._reference_lap = None
+        if self.reference_mode == "chase":
+            if info.car_id != self._chase_car_id:
+                self._end_chase()
+            else:
+                # Carry on from whatever was being chased when it happened;
+                # it is a lap of the previous session now, so it is the floor.
+                if self._chase_samples is not None and self.reference_time_ms is not None:
+                    self._chase_base = (
+                        self.reference_lap_id, self.reference_time_ms, self._chase_samples,
+                    )
+                self._chase_samples = None
+                self._chase_confirmed = False
         self._prepared = None
         self._emitted.clear()
         self._severity.clear()
         self.clock.reset()
         for detector in self._detectors:
             detector.reset(self.ctx)
+
+    async def on_track(self, track: str) -> None:
+        """The circuit being driven, as far as it is identified ("" until then).
+
+        Called before each lap is processed. A chase parked by a restart
+        resumes once the circuit turns out to be the one it was chosen at,
+        and ends if it is another. It waits while the circuit is unknown:
+        coaching against a lap of some other track would be noise.
+        """
+        self.ctx.track_name = track
+        if self.reference_mode != "chase" or self._chase_confirmed or not track:
+            return
+        if track != self._chase_track:
+            self.select_session_best_reference()
+            return
+        self._chase_confirmed = True
+        self._chase_settle()
+        await self.refresh_reference()
+
+    # --- coaching reference -------------------------------------------------
+
+    def select_chase_reference(
+        self,
+        lap_id: int,
+        time_ms: int,
+        samples: dict[str, list[float]],
+    ) -> None:
+        """Chase a stored lap of the circuit and car being driven.
+
+        The circuit and car are the context's at the time of the call; set
+        ctx.track_name first. Call refresh_reference afterwards to adopt it.
+        """
+        if time_ms <= 0 or not samples.get("dist"):
+            raise ValueError("That lap has no usable telemetry")
+        self.reference_mode = "chase"
+        self._chase_base = (lap_id, time_ms, samples)
+        self._chase_samples = None
+        self._chase_car_id = self.ctx.car_id
+        self._chase_track = self.ctx.track_name
+        self._chase_confirmed = True
+        # A lap driven this session may already be quicker than the chosen one.
+        self._chase_settle()
+
+    def select_session_best_reference(self) -> None:
+        """Back to coaching against the session's fastest counting lap."""
+        self._end_chase()
+        best = self._session_fastest()
+        if best is not None:
+            self._pending_reference = best.samples
+            self._reference_lap = best.number
+        else:
+            self._pending_reference = None
+            self._reference_lap = None
+            self.ctx.reference = None
+            self.ctx.corners = []
+
+    def _end_chase(self) -> None:
+        self.reference_mode = "session_best"
+        self.reference_lap_id = None
+        self.reference_time_ms = None
+        self._chase_base = None
+        self._chase_samples = None
+        self._chase_car_id = None
+        self._chase_track = ""
+        self._chase_confirmed = False
+
+    def _chase_settle(self) -> None:
+        """Chase the quicker of the floor and this session's fastest counting lap."""
+        if self._chase_base is None or not self._chase_confirmed:
+            return
+        lap_id, time_ms, samples = self._chase_base
+        number: int | None = None
+        best = self._session_fastest()
+        if best is not None and best.time_ms < time_ms:
+            lap_id, time_ms, samples, number = None, best.time_ms, best.samples, best.number
+        self._chase_adopt(lap_id, time_ms, samples, number)
+
+    def _chase_adopt(
+        self,
+        lap_id: int | None,
+        time_ms: int,
+        samples: dict[str, list[float]],
+        number: int | None,
+    ) -> None:
+        """Make this the lap being chased; refresh_reference picks it up.
+
+        `number` is its lap number when it is a lap of this session, which is
+        what lets _reflag drop it if it stops counting.
+        """
+        if samples is not self._chase_samples or self.ctx.reference is None:
+            self._pending_reference = samples
+        self._chase_samples = samples
+        self.reference_lap_id = lap_id
+        self.reference_time_ms = time_ms
+        self._reference_lap = number
 
     async def refresh_reference(self) -> None:
         """Adopt the new session-best lap as the coaching reference.
