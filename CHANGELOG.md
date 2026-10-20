@@ -26,6 +26,10 @@ Notable changes to GT7 Datalogger. The format follows
   message `set_engineer_reference`; `race_engineer_status` gains
   `reference_mode`, `reference_lap_id` and `reference_time_ms`. Contributed by
   @Marstiphal (#152).
+- **Split view in Analysis.** **Split**, beside **Follow** on the race line map,
+  puts three charts of your choosing next to the map on a wide screen, sharing
+  its cursor and zoom; the full chart stack stays below. Remembered on this
+  device. Contributed by @Marstiphal (#156).
 
 ## [0.8.0] - 2026-10-15
 

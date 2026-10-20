@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { CHANNEL_BY_KEY } from "@/lib/channels";
 import type { Units } from "@/lib/format";
 import { DEFAULT_MAP_LAYERS, type MapLayerKey, type MapLayers } from "@/lib/mapLayers";
 import { DEFAULT_LENS, isMapLens, type MapLens } from "@/lib/mapLens";
@@ -44,6 +45,27 @@ interface SettingsState {
    */
   mapLens: MapLens;
   setMapLens: (v: MapLens) => void;
+  /**
+   * Analysis split view (#156): on a wide screen, three charts beside the
+   * race line instead of below it, which channels they are picked in their
+   * own header. The full chart stack stays below either way. Remembered on
+   * this device like mapFollow.
+   */
+  splitView: boolean;
+  setSplitView: (v: boolean) => void;
+  splitChannels: string[];
+  setSplitChannel: (index: number, key: string) => void;
+}
+
+export const DEFAULT_SPLIT_CHANNELS = ["speed", "throttle", "brake"];
+
+/** Three different channels this build knows, or the defaults. */
+function validSplitChannels(keys: unknown): string[] {
+  if (!Array.isArray(keys) || keys.length !== DEFAULT_SPLIT_CHANNELS.length) {
+    return DEFAULT_SPLIT_CHANNELS;
+  }
+  const known = keys.filter((k): k is string => typeof k === "string" && k in CHANNEL_BY_KEY);
+  return new Set(known).size === keys.length ? known : DEFAULT_SPLIT_CHANNELS;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -59,6 +81,11 @@ export const useSettings = create<SettingsState>()(
       setMapLayer: (key, on) => set((s) => ({ mapLayers: { ...s.mapLayers, [key]: on } })),
       mapLens: DEFAULT_LENS,
       setMapLens: (mapLens) => set({ mapLens }),
+      splitView: false,
+      setSplitView: (splitView) => set({ splitView }),
+      splitChannels: DEFAULT_SPLIT_CHANNELS,
+      setSplitChannel: (index, key) =>
+        set((s) => ({ splitChannels: s.splitChannels.map((k, i) => (i === index ? key : k)) })),
     }),
     {
       name: "gt7-settings",
@@ -83,6 +110,8 @@ export const useSettings = create<SettingsState>()(
           // since removed) would be drawn as Inputs but still written into
           // every link as lens=…, so it falls back to Inputs here.
           mapLens: isMapLens(stored.mapLens) ? stored.mapLens : DEFAULT_LENS,
+          // A channel since renamed or removed would chart nothing.
+          splitChannels: validSplitChannels(stored.splitChannels),
         };
       },
     },
