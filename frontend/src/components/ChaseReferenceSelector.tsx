@@ -1,208 +1,201 @@
+// Coaching reference card on /engineer: coach against the session's fastest
+// lap (the default) or chase a stored lap of the circuit being driven. The
+// choice lives on the server, which reports it in race_engineer_status, so
+// every page shows the same one.
 
 import { useEffect, useState } from "react";
-import { useTelemetry } from "@/store/telemetry";
 import { api } from "@/lib/api";
+import { formatLapTime, formatTime } from "@/lib/format";
 import type { LapSummary } from "@/lib/types";
-import { useEngineer } from "@/store/engineer";
 import { sendWs, subscribeWs } from "@/lib/wsBus";
+import { useEngineer } from "@/store/engineer";
+import { useTelemetry } from "@/store/telemetry";
 
 export function ChaseReferenceSelector() {
-const [showLapPicker, setShowLapPicker] = useState(false);
-const [savedLaps, setSavedLaps] = useState<LapSummary[]>([]);
-const [loadingLaps, setLoadingLaps] = useState(false);
-const [lapError, setLapError] = useState<string | null>(null);
   const trackName = useTelemetry((st) => st.status?.track_name ?? "");
-  const lapEpoch = useTelemetry((st) => st.lapEpoch);
   const wsConnected = useTelemetry((st) => st.wsConnected);
-  const referenceMode = useEngineer(
-    (st) => st.serverStatus?.reference_mode ?? "session_best"
+  const lapEpoch = useTelemetry((st) => st.lapEpoch);
+  const mode = useEngineer((s) => s.serverStatus?.reference_mode ?? "session_best");
+  const chasedId = useEngineer((s) => s.serverStatus?.reference_lap_id ?? null);
+  const chasedMs = useEngineer((s) => s.serverStatus?.reference_time_ms ?? null);
+  const [picking, setPicking] = useState(false);
+  // Keyed by circuit, so a list fetched for the last one is never offered.
+  const [list, setList] = useState<{ track: string; laps: LapSummary[] } | null>(null);
+  const [chased, setChased] = useState<LapSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const laps = list?.track === trackName ? list.laps : null;
+
+  // A lap the server can't chase comes back as an error naming the request.
+  useEffect(
+    () =>
+      subscribeWs((msg) => {
+        if (msg.type === "error" && msg.data.request === "set_engineer_reference") {
+          setError(msg.data.message);
+        }
+      }),
+    [],
   );
 
-const referenceLapId = useEngineer(
-  (st) => st.serverStatus?.reference_lap_id ?? null
-);
+  // Only while the list is open; a new lap or session refreshes it.
+  useEffect(() => {
+    if (!picking || !trackName) return;
+    let live = true;
+    api
+      .laps(trackName)
+      .then((all) => {
+        if (!live) return;
+        const counting = all.filter((lap) => lap.counts_for_best && lap.time_ms > 0);
+        setList({ track: trackName, laps: counting.sort((a, b) => a.time_ms - b.time_ms) });
+      })
+      .catch(() => live && setError("Could not load the laps stored at this circuit."));
+    return () => {
+      live = false;
+    };
+  }, [picking, trackName, lapEpoch]);
 
-const referenceTimeMs = useEngineer(
-  (st) => st.serverStatus?.reference_time_ms ?? null
-);
-
-const selectedLap = savedLaps.find((lap) => lap.id === referenceLapId);
-
-useEffect(() => {
-  return subscribeWs((msg) => {
-    if (msg.type === "engineer_reference_error") {
-      setLapError(msg.data.message);
+  // Name the lap being chased, wherever the choice was made.
+  useEffect(() => {
+    if (chasedId == null) {
+      setChased(null);
+      return;
     }
-  });
-}, []);
+    let live = true;
+    api
+      .lapDetail(chasedId, false)
+      .then((lap) => live && setChased(lap))
+      .catch(() => live && setChased(null));
+    return () => {
+      live = false;
+    };
+  }, [chasedId]);
 
-useEffect(() => {
-  if ((!showLapPicker && referenceMode !== "chase") || !trackName) return;
-
-  let cancelled = false;
-  setLoadingLaps(true);
-  setLapError(null);
-
-  api.laps(trackName)
-    .then((laps) => {
-      if (!cancelled) {
-        setSavedLaps(
-          laps.filter((lap) => lap.counts_for_best && lap.time_ms > 0)
-        );
-      }
-    })
-    .catch(() => {
-      if (!cancelled) {
-        setLapError("Could not load saved laps.");
-      }
-    })
-    .finally(() => {
-      if (!cancelled) setLoadingLaps(false);
-    });
-
-  return () => {
-    cancelled = true;
+  const choose = (lapId: number | null) => {
+    setError(null);
+    if (!sendWs({ type: "set_engineer_reference", data: { lap_id: lapId } })) {
+      setError("Not connected to the datalogger.");
+      return;
+    }
+    setPicking(false);
   };
-}, [showLapPicker, referenceMode, trackName, lapEpoch]);
 
-function selectHistoricalLap(lapId: number) {
-  setLapError(null);
-
-  const sent = sendWs({
-    type: "set_engineer_reference",
-    data: { lap_id: lapId },
-  });
-
-  if (!sent) {
-    setLapError("Not connected to the Race Engineer.");
-    return;
-  }
-
-  setShowLapPicker(false);
-}
-
-  function selectSessionBest() {
-    sendWs({
-      type: "set_engineer_reference",
-      data: { lap_id: null },
-    });
-  }
+  const chasing = mode === "chase";
+  const chasedLabel =
+    chasedId == null
+      ? "your lap that beat it"
+      : chased
+        ? `${chased.car_name ?? "–"} · S#${chased.session_id} L${chased.number}`
+        : `lap #${chasedId}`;
 
   return (
-    <section className="rounded-md border border-edge bg-panel-2 p-3">
-      <h3 className="mb-2 text-sm font-semibold">
-        🎯 Coaching Reference
-      </h3>
-
-      <p className="mb-3 text-xs text-ink-dim">
-        Circuit: {trackName || "Waiting for circuit identification"}
-      </p>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          className={`btn rounded-md px-3 py-2 text-xs ${
-            referenceMode === "session_best" ? "btn-primary" : ""
-          }`}
-          disabled={!wsConnected}
-          onClick={selectSessionBest}
-        >
-          Session Best
-        </button>
-
-        <button
-          type="button"
-          className={`btn rounded-md px-3 py-2 text-xs ${
-            referenceMode === "chase" ? "btn-primary" : ""
-          }`}
-          disabled={!wsConnected || !trackName}
-		  onClick={() => setShowLapPicker((open) => !open)}
-        >
-          Chase a Reference
-        </button>
+    <div className="panel">
+      <div className="flex items-baseline gap-2 px-4 py-2.5">
+        <span className="section-header">Coaching reference</span>
+        <span className="min-w-0 truncate text-[10.5px] text-ink-faint">
+          {trackName || "circuit not identified yet"}
+        </span>
       </div>
-
-{showLapPicker && (
-  <div className="mt-3 rounded-md border border-edge bg-panel p-2">
-    <div className="mb-2 text-xs font-semibold">
-      Saved laps at {trackName}
-    </div>
-
-    {loadingLaps && (
-      <p className="text-xs text-ink-dim">Loading saved laps...</p>
-    )}
-
-    {!loadingLaps && savedLaps.length === 0 && !lapError && (
-      <p className="text-xs text-ink-dim">
-        No valid saved laps found for this circuit.
-      </p>
-    )}
-
-    {!loadingLaps && savedLaps.length > 0 && (
-      <div className="max-h-64 space-y-1 overflow-y-auto">
-        {savedLaps.map((lap) => (
-          <button
-            key={lap.id}
-            type="button"
+      <div className="rule" />
+      <div className="flex flex-col gap-3 px-4 py-3.5">
+        <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Coaching reference">
+          <Choice
+            checked={!chasing}
             disabled={!wsConnected}
-            onClick={() => selectHistoricalLap(lap.id)}
-            className="flex w-full items-center justify-between gap-2 rounded-md border border-edge p-2 text-left text-xs hover:bg-panel-2 disabled:opacity-50"
-          >
-            <span className="min-w-0 truncate">
-              {lap.car_name || `Car ${lap.car_id ?? "unknown"}`}
-              {" · Lap "}
-              {lap.number}
-            </span>
+            label="Session best"
+            hint="Your fastest lap of this session that counts."
+            onClick={() => choose(null)}
+          />
+          <Choice
+            checked={chasing}
+            disabled={!wsConnected || !trackName}
+            label="Chase a lap"
+            hint="A stored lap at this circuit. Beat it and your lap takes over."
+            onClick={() => setPicking((open) => !open)}
+          />
+        </div>
 
-            <span className="shrink-0 font-mono">
-              {Math.floor(lap.time_ms / 60000)}:
-              {String(Math.floor((lap.time_ms % 60000) / 1000)).padStart(2, "0")}.
-              {String(lap.time_ms % 1000).padStart(3, "0")}
-            </span>
-          </button>
-        ))}
+        {chasing && chasedMs != null && (
+          <div className="flex min-w-0 items-baseline gap-2 text-[11.5px]">
+            <span className="whitespace-nowrap text-ink-faint">Chasing</span>
+            <span className="min-w-0 truncate text-ink-soft">{chasedLabel}</span>
+            <span className="ml-auto font-tabular text-accent-300">{formatLapTime(chasedMs)}</span>
+          </div>
+        )}
+
+        {picking && (
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {laps == null &&
+              [0, 1, 2].map((i) => <div key={i} className="skeleton h-9" />)}
+            {laps != null && laps.length === 0 && (
+              <p className="text-[11px] text-ink-faint">No laps stored at this circuit yet.</p>
+            )}
+            {laps?.map((lap) => {
+              const current = chasing && lap.id === chasedId;
+              return (
+                <button
+                  key={lap.id}
+                  disabled={!wsConnected}
+                  aria-current={current || undefined}
+                  onClick={() => choose(lap.id)}
+                  className={`flex w-full items-baseline gap-2 rounded-md border px-3 py-2 text-left text-xs transition-colors disabled:opacity-45 ${
+                    current
+                      ? "border-accent/60 bg-accent/10 text-accent-300"
+                      : "border-edge text-ink enabled:hover:border-accent enabled:hover:bg-panel-2"
+                  }`}
+                >
+                  <span className="shrink-0 font-tabular">{formatLapTime(lap.time_ms)}</span>
+                  <span className="min-w-0 truncate text-ink-dim">
+                    · {lap.car_name ?? "–"} · S#{lap.session_id} L{lap.number}
+                    {lap.finished_at ? ` · ${formatTime(lap.finished_at)}` : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {error && (
+          <p role="alert" className="text-[11px] text-brake">
+            {error}
+          </p>
+        )}
+
+        <span className="text-[11px] text-ink-faint">
+          {!chasing
+            ? "Coaching compares every lap against this session’s fastest."
+            : chasedId == null
+              ? "You beat the lap you chose, so coaching uses yours now."
+              : "Kept through race restarts. A new car or circuit goes back to the session best."}
+        </span>
       </div>
-    )}
-  </div>
-)}
-
-{lapError && (
-  <p role="alert" className="mt-2 text-xs text-red-400">
-    {lapError}
-  </p>
-)}
-
-<div className="mt-3 rounded-md bg-panel p-3">
-  <div className="text-[10px] uppercase tracking-widest text-ink-dim">
-    Active Coaching Reference
-  </div>
-
-  <div className="mt-1 text-sm font-semibold">
-    {referenceMode === "chase"
-      ? selectedLap?.car_name || (
-          referenceLapId === null
-            ? "Your new fastest lap"
-            : `Historical lap #${referenceLapId}`
-        )
-      : "Session Best"}
-  </div>
-
-  {referenceMode === "chase" && referenceTimeMs !== null && (
-    <div className="mt-1 font-mono text-lg">
-      {Math.floor(referenceTimeMs / 60000)}:
-      {String(Math.floor((referenceTimeMs % 60000) / 1000)).padStart(2, "0")}.
-      {String(referenceTimeMs % 1000).padStart(3, "0")}
     </div>
-  )}
+  );
+}
 
-  <p className="mt-2 text-xs text-ink-dim">
-    {referenceMode === "chase"
-      ? referenceLapId === null
-        ? "You have beaten your historical reference. Coaching now uses your faster lap."
-        : "Coaching against your selected historical lap."
-      : "Automatically coaching against your fastest valid session lap."}
-  </p>
-</div>
-    </section>
+function Choice({
+  checked,
+  disabled,
+  label,
+  hint,
+  onClick,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      role="radio"
+      aria-checked={checked}
+      disabled={disabled}
+      className={`flex min-h-11 flex-col gap-[3px] rounded-md border px-3 py-2.5 text-left transition-colors disabled:cursor-default disabled:opacity-45 ${
+        checked ? "border-accent/60 bg-accent/10" : "border-edge enabled:hover:border-edge-bright"
+      }`}
+      onClick={onClick}
+    >
+      <span className={`text-[13px] ${checked ? "text-accent-300" : "text-ink"}`}>{label}</span>
+      <span className="text-[10.5px] leading-snug text-ink-dim">{hint}</span>
+    </button>
   );
 }

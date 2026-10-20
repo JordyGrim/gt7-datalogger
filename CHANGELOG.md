@@ -18,6 +18,14 @@ Notable changes to GT7 Datalogger. The format follows
   session archive and (`wheel_angle`, as "Front Wheel Angle") the CSV export;
   the lap file stays at version 2. Laps recorded without packet C, and every
   lap stored before, have neither. The simulator sends both.
+- **Chase a lap.** Race Engineer coaching can compare against a stored lap of
+  the circuit you are driving instead of your session best: **Coaching
+  reference** on `/engineer`, then **Chase a lap**. A quicker lap of your own
+  takes over, falling back to the chosen lap if it stops counting. The choice
+  survives race restarts and ends on a new car or circuit. New WebSocket
+  message `set_engineer_reference`; `race_engineer_status` gains
+  `reference_mode`, `reference_lap_id` and `reference_time_ms`. Contributed by
+  @Marstiphal (#152).
 
 ## [0.8.0] - 2026-10-15
 

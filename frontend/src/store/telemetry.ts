@@ -70,11 +70,11 @@ export const useTelemetry = create<TelemetryState>((set) => {
         case "voice_callout":
         case "voice_output_status":
         case "race_engineer_status":
-        case "engineer_reference_error":
         case "survey":
+        case "error":
           // Handled elsewhere (Race Engineer in store/engineer.ts, survey
-          // transitions in SurveyView) via the bus, so this store never has
-          // to know about them.
+          // transitions in SurveyView, refused requests by whoever sent
+          // them) via the bus, so this store never has to know about them.
           publishWs(msg);
           break;
         case "telemetry":

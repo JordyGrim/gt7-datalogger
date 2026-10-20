@@ -84,11 +84,11 @@ export function EngineerView() {
         </div>
 
         <Hero />
-        <ChaseReferenceSelector />
 
         <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
           <div className="flex min-w-0 flex-col gap-3">
             <WhatYoullHear />
+            <ChaseReferenceSelector />
             <VoicePanel />
           </div>
           <CalloutFeed />
