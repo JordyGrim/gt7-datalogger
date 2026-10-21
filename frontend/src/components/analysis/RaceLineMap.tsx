@@ -1268,7 +1268,8 @@ function MapBody({
 
   // Every lap the map shows, read out where the pointer meets the reference
   // line: the time diff and the chart panels, listed as the chart tooltip
-  // lists them. Laps hidden from the map are left out of it too.
+  // lists them. Laps hidden from the map are left out of it too. A layer
+  // like the rest, since it covers a fair part of a small map.
   const [readout, setReadout] = useState<{ dist: number; x: number; y: number } | null>(null);
   const readoutRef = useRef<HTMLDivElement>(null);
   const readoutLaps = useMemo(
@@ -1277,8 +1278,10 @@ function MapBody({
   );
   const readoutRows = useMemo(
     () =>
-      readout ? mapReadout(readoutLaps.map((lap) => lap.entry), channels, readout.dist, units) : [],
-    [readout, readoutLaps, channels, units],
+      readout && layers.readout
+        ? mapReadout(readoutLaps.map((lap) => lap.entry), channels, readout.dist, units)
+        : [],
+    [readout, layers.readout, readoutLaps, channels, units],
   );
   // Beside the pointer, on its left near the right edge, and always inside
   // the map. Placed after layout, since its size depends on what it lists,
@@ -1317,7 +1320,7 @@ function MapBody({
     // Never with a button down: a drag is choosing a stretch (or, full
     // screen, panning), and a touch has no hover to read out.
     setReadout(
-      hit && !g && e.buttons === 0 && hit.offPx <= LINE_GRAB_PX
+      layers.readout && hit && !g && e.buttons === 0 && hit.offPx <= LINE_GRAB_PX
         ? { dist: hit.dist, x: px, y: py }
         : null,
     );
@@ -1470,7 +1473,7 @@ function MapBody({
         />
         {/* Dressed as the chart tooltip, which lists the same rows. Capped
             to the map: with a long panel list the last rows go, not the
-            lap strip underneath. */}
+            lap strip underneath. No rows with the layer off. */}
         {readout && readoutRows.length > 0 && (
           <div
             ref={readoutRef}

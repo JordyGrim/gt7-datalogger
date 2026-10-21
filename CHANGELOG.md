@@ -51,8 +51,9 @@ Notable changes to GT7 Datalogger. The format follows
 - **Every lap's values on the race line map.** Pointing at the reference line
   shows a readout there: the time diff and each chart panel, one column per
   lap the map shows, as the chart tooltip lists them. It works in the
-  full-screen map too, where the charts are out of sight. Contributed by
-  @Marstiphal (#159).
+  full-screen map too, where the charts are out of sight, and **Hover
+  readout** in the Layers menu switches it off. Contributed by @Marstiphal
+  (#159).
 
 ### Fixed
 
