@@ -347,6 +347,10 @@ The [lap strip](#lap-strip) under the map is coloured the same way — the line 
 Other selected laps overlay as thin lines in their chart colours. The map follows the
 chart cursor, placing one dot per lap at the hovered distance so you can see the spatial
 gap between lines; hovering the line on the map moves the cursor everywhere else too.
+Point right at the line and a readout lists every lap the map shows there — the time
+diff and each chart panel, laid out like the chart tooltip — in the
+[full-screen map](#full-screen) too, where the charts are out of sight. **Hover
+readout** in [Layers](#layers) switches it off.
 
 A metre across is a metre down, so a corner's shape on screen is its shape on the track.
 The axis ranges follow the plotting area's pixel aspect to keep it that way in any
@@ -418,7 +422,8 @@ Everything besides the reference line is a layer with a switch in the **Layers**
 listed only when the selected laps have something to put on it; the choices are remembered
 on this device. **Track**: the surveyed road, the corner numbers. **Laps**: the other
 laps (switching them off hides their markers and cursor dots too), their apex
-speeds, their brake points. **Markers**: ▲ speed peaks and ▼ valleys,
+speeds, their brake points, the hover readout (every lap's values where you point at
+the line). **Markers**: ▲ speed peaks and ▼ valleys,
 kerb and off-track contact, chassis events, TCS and ASM rings. Events and the aid rings
 start off; everything else starts on.
 

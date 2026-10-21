@@ -6,9 +6,9 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
-import { channelValues, type ChannelDef } from "@/lib/channels";
+import { channelValues, formatValueFor, readoutLines, type ChannelDef } from "@/lib/channels";
 import { lapColor } from "@/lib/colors";
-import { speedUnit, type Units } from "@/lib/format";
+import type { Units } from "@/lib/format";
 import { gearHighBands, suggestionValues } from "@/lib/gearChoice";
 import { AIDS_ASM, AIDS_TCS, type CompareResult, type LapEvent } from "@/lib/types";
 
@@ -23,46 +23,6 @@ interface PanelDef {
 
 // The time-diff panel is the anchor of the view and always first;
 // every other panel comes from the channel picker.
-// Channel-aware value formatting, shared by the tooltip and the per-strip
-// playhead readouts.
-function formatValueFor(units: Units) {
-  return (key: string, v: number): string => {
-      if (key.startsWith("slip_") || key === "tire_slip") return `${v.toFixed(2)}×`;
-      if (key.startsWith("tt_")) {
-        const sign = key === "tt_balance" && v > 0 ? "+" : "";
-        return `${sign}${v.toFixed(1)} °C`;
-      }
-      if (key.startsWith("sus_") || key === "body_height") return `${v.toFixed(1)} mm`;
-      switch (key) {
-        case "delta":
-          return `${v >= 0 ? "+" : ""}${v.toFixed(3)} s`;
-        case "speed":
-          return `${Math.round(v)} ${speedUnit(units)}`;
-        case "throttle":
-        case "brake":
-          return `${Math.round(v)}%`;
-        case "coast":
-          return v >= 0.5 ? "coasting" : "—";
-        case "gear":
-        case "suggested_gear":
-          return `${Math.round(v)}`;
-        case "rpm":
-          return `${Math.round(v).toLocaleString()} rpm`;
-        case "boost":
-          return `${v.toFixed(2)} bar`;
-        case "yaw_rate":
-        case "kin_yaw":
-        case "yaw_balance":
-          return `${v.toFixed(2)} rad/s`;
-        case "wheel_angle":
-          // A road wheel turns a few hundredths of a radian.
-          return `${v.toFixed(3)} rad`;
-        default:
-          return v.toFixed(2);
-      }
-  };
-}
-
 const DELTA_PANEL: PanelDef = { key: "delta", title: "Time diff (s)", height: 1.2 };
 
 // The tooltip is HTML, and lap labels are text.
@@ -537,13 +497,7 @@ export function StackedCharts({
                 )
                 .join("")}</tr>`
             : "";
-          // One row per panel, and under Gear the gear GT7 suggested, where
-          // it suggested one.
-          const lines = panels.flatMap((panel) => {
-            const line = { key: panel.key, label: panel.title.replace(/ \(.*\)| %/, "") };
-            return panel.key === "gear" ? [line, { key: "suggested_gear", label: "Suggested" }] : [line];
-          });
-          const rows = lines.map(({ key, label }) => {
+          const rows = readoutLines(panels).map(({ key, label }) => {
             const cells = cols.map((id) => cellValue.get(`${key}|${id}`));
             if (cells.every((c) => c == null)) return "";
             return `<tr>

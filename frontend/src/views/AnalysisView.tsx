@@ -726,7 +726,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // existed, a lap with no events, a circuit never surveyed) is a switch
   // that does nothing, so the Layers menu lists only these.
   const availableLayers = useMemo(() => {
-    const keys = new Set<MapLayerKey>(["peaks"]);
+    // The readout only needs the reference line, which every map has.
+    const keys = new Set<MapLayerKey>(["peaks", "readout"]);
     const ref = mapLaps.find((lap) => lap.isRef);
     if ((outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0) keys.add("road");
     if ((ref?.entry.corners?.length ?? 0) > 0) {
@@ -1262,6 +1263,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               layers={mapLayers}
               brakeMarks={brakeMarks}
               laps={mapLaps}
+              channels={channelDefs}
               cursorDist={cursorDist}
               zoomRange={shownZoom}
               animate={liveZoom == null}

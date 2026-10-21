@@ -28,3 +28,17 @@ describe("the remembered lens", () => {
     expect((await hydrate({ mapLens: "tyres" })).mapLens).toBe("inputs");
   });
 });
+
+describe("the remembered map layers", () => {
+  it("start a layer the stored copy predates at its default", async () => {
+    // Stored before the hover readout (#159) had a switch.
+    const layers = (await hydrate({ mapLayers: { others: false, events: true } })).mapLayers;
+    expect(layers.readout).toBe(true);
+    expect(layers.others).toBe(false);
+    expect(layers.events).toBe(true);
+  });
+
+  it("keep the readout off once it is switched off", async () => {
+    expect((await hydrate({ mapLayers: { readout: false } })).mapLayers.readout).toBe(false);
+  });
+});

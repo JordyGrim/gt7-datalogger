@@ -18,6 +18,7 @@ export type MapLayerKey =
   | "others"
   | "apex"
   | "brakes"
+  | "readout"
   | "peaks"
   | "kerbs"
   | "events"
@@ -45,6 +46,7 @@ export const MAP_LAYER_GROUPS: { title: string; layers: MapLayerDef[] }[] = [
       { key: "others", label: "Other laps", help: "Their lines, markers and dots — thin until you zoom in" },
       { key: "apex", label: "Apex speeds", help: "Min speed per lap, when zoomed" },
       { key: "brakes", label: "Brake points", help: "Where each lap braked, per corner" },
+      { key: "readout", label: "Hover readout", help: "Every lap's values where you point at the line" },
     ],
   },
   {
@@ -68,6 +70,7 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   others: true,
   apex: true,
   brakes: true,
+  readout: true,
   peaks: true,
   kerbs: true,
   events: false,
