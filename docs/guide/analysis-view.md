@@ -347,6 +347,9 @@ The [lap strip](#lap-strip) under the map is coloured the same way — the line 
 Other selected laps overlay as thin lines in their chart colours. The map follows the
 chart cursor, placing one dot per lap at the hovered distance so you can see the spatial
 gap between lines; hovering the line on the map moves the cursor everywhere else too.
+Point right at the line and a readout lists every lap the map shows there — the time
+diff and each chart panel, laid out like the chart tooltip — in the
+[full-screen map](#full-screen) too, where the charts are out of sight.
 
 A metre across is a metre down, so a corner's shape on screen is its shape on the track.
 The axis ranges follow the plotting area's pixel aspect to keep it that way in any

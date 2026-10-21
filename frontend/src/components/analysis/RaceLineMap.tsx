@@ -43,7 +43,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { CHART_COLORS, EChart } from "@/components/EChart";
 import { LargeDialog } from "@/components/ui/Dialog";
 import type { ChannelDef } from "@/lib/channels";
-import { deltaAtDistance, formatValueFor, telemetryAtDistance } from "./telemetryTooltip";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
 import { lineDragRange, wheelRange } from "@/lib/lapStrip";
@@ -59,13 +58,13 @@ import {
   wheelsText,
 } from "@/lib/mapLayers";
 import { INPUT_COLORS, type LensSeries, zoneOf } from "@/lib/mapLens";
+import { mapReadout } from "@/lib/mapReadout";
 import { borderPolylines } from "@/lib/outline";
 import { positionAtDist, positionAtTime, timeAtDist } from "@/lib/playback";
 import {
   AIDS_ASM,
   AIDS_TCS,
   type CompareLapEntry,
-  type Samples,
   type Corner,
   type EventType,
   kerbWheelCount,
@@ -162,75 +161,19 @@ const GRID_PAD = 8;
 // visibly moving rather than crawling.
 const FOLLOW_SPAN_M = 220;
 
-// A pointer this close to the line takes hold of it; a little further still
-// moves the shared cursor along it.
+// A pointer this close to the line takes hold of it and reads every lap out
+// there; a little further still moves the shared cursor along it.
 const LINE_GRAB_PX = 24;
 const LINE_HOVER_PX = 48;
 // The window animates into a corner over this long, easing out.
 const ZOOM_ANIM_MS = 280;
 
-function nearestDistanceOnLine(
-  x: number,
-  z: number,
-  series: Samples & { dist: number[] },
-  range?: [number, number] | null,
-): { dist: number } | null {
-  const { dist, pos_x, pos_z } = series;
+// The hover readout sits this far from the pointer, and at least this far
+// inside the map's edges.
+const READOUT_GAP_PX = 16;
+const READOUT_MARGIN_PX = 8;
 
-  let bestDist = 0;
-  let bestSeparationSq = Infinity;
-
-  for (let i = 0; i < dist.length - 1; i++) {
-    const d0 = dist[i];
-    const d1 = dist[i + 1];
-
-    if (range && (d1 < range[0] || d0 > range[1])) {
-      continue;
-    }
-
-    const x0 = pos_x[i];
-    const z0 = pos_z[i];
-    const dx = pos_x[i + 1] - x0;
-    const dz = pos_z[i + 1] - z0;
-
-    const lengthSq = dx * dx + dz * dz;
-    if (!Number.isFinite(lengthSq) || lengthSq < 1e-10) {
-      continue;
-    }
-
-    const projection =
-      ((x - x0) * dx + (z - z0) * dz) / lengthSq;
-
-    let t = Math.max(0, Math.min(1, projection));
-
-    if (range) {
-      const span = d1 - d0;
-      if (span <= 0) continue;
-
-      const minT = Math.max(0, (range[0] - d0) / span);
-      const maxT = Math.min(1, (range[1] - d0) / span);
-
-      if (minT > maxT) continue;
-
-      t = Math.max(minT, Math.min(maxT, t));
-    }
-
-    const nearestX = x0 + t * dx;
-    const nearestZ = z0 + t * dz;
-
-    const separationSq =
-      (x - nearestX) ** 2 + (z - nearestZ) ** 2;
-
-    if (separationSq < bestSeparationSq) {
-      bestSeparationSq = separationSq;
-      bestDist = d0 + t * (d1 - d0);
-    }
-  }
-
-  if (!Number.isFinite(bestSeparationSq)) return null;
-
-  return { dist: bestDist };
-}
+const NO_CHANNELS: ChannelDef[] = [];
 
 export interface MapLap {
   id: string;
@@ -243,7 +186,8 @@ export interface MapLap {
 interface MapProps {
   laps: MapLap[];
   cursorDist: number | null;
-  /** Selected telemetry channels for the map comparison tooltip. */
+  // The chart panels, which the hover readout lists under the time diff.
+  // Omitted, it lists the time diff alone.
   channels?: ChannelDef[];
   zoomRange?: [number, number] | null;
   // The circuit's surveyed road, when it has been surveyed. Null/empty draws
@@ -456,7 +400,7 @@ export function RaceLineMap(props: MapProps) {
 function MapBody({
   laps,
   cursorDist,
-  channels = [],
+  channels = NO_CHANNELS,
   zoomRange,
   outline,
   onZoomChange,
@@ -483,8 +427,6 @@ function MapBody({
   // stays a metre either way. Measured rather than assumed, because the same
   // component renders in both.
   const boxRef = useRef<HTMLDivElement>(null);
-  const telemetryTooltipRef = useRef<HTMLDivElement>(null);
-  const [tooltipPosition, setTooltipPosition] = useState({ left: 8, top: 8 });
   const [aspect, setAspect] = useState(1);
   useEffect(() => {
     const el = boxRef.current;
@@ -507,12 +449,6 @@ function MapBody({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const [telemetryHover, setTelemetryHover] = useState<{
-    dist: number;
-    x: number;
-    y: number;
-  } | null>(null);
-
   const ref = laps.find((lap) => lap.isRef);
   const focus = focusId != null ? laps.find((lap) => lap.id === focusId && !lap.isRef) : undefined;
   const hasOutline = (outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0;
@@ -1328,6 +1264,38 @@ function MapBody({
     [ref],
   );
 
+  // --- the hover readout ----------------------------------------------------
+
+  // Every lap the map shows, read out where the pointer meets the reference
+  // line: the time diff and the chart panels, listed as the chart tooltip
+  // lists them. Laps hidden from the map are left out of it too.
+  const [readout, setReadout] = useState<{ dist: number; x: number; y: number } | null>(null);
+  const readoutRef = useRef<HTMLDivElement>(null);
+  const readoutLaps = useMemo(
+    () => laps.filter((lap) => lap.isRef || layers.others),
+    [laps, layers.others],
+  );
+  const readoutRows = useMemo(
+    () =>
+      readout ? mapReadout(readoutLaps.map((lap) => lap.entry), channels, readout.dist, units) : [],
+    [readout, readoutLaps, channels, units],
+  );
+  // Beside the pointer, on its left near the right edge, and always inside
+  // the map. Placed after layout, since its size depends on what it lists,
+  // and set on the element so that a pointer move costs one render, not two.
+  useLayoutEffect(() => {
+    const tip = readoutRef.current;
+    const box = boxRef.current;
+    if (!readout || !tip || !box) return;
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const right = readout.x + READOUT_GAP_PX;
+    const x = right + w + READOUT_MARGIN_PX <= box.clientWidth ? right : readout.x - READOUT_GAP_PX - w;
+    const y = readout.y + READOUT_GAP_PX;
+    tip.style.left = `${Math.max(READOUT_MARGIN_PX, Math.min(x, box.clientWidth - w - READOUT_MARGIN_PX))}px`;
+    tip.style.top = `${Math.max(READOUT_MARGIN_PX, Math.min(y, box.clientHeight - h - READOUT_MARGIN_PX))}px`;
+  }, [readout, readoutRows]);
+
   const gestures = hero && !maximized && !!ref;
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!gestures || e.button !== 0) return;
@@ -1338,77 +1306,22 @@ function MapBody({
     // reach the chart. Capture starts with the drag.
     grab.current = { start: hit.dist, moved: false };
   };
-  useLayoutEffect(() => {
-    if (!telemetryHover) return;
-
-    const tooltip = telemetryTooltipRef.current;
-    const container = boxRef.current;
-    if (!tooltip || !container) return;
-
-    const margin = 8;
-    const gap = 16;
-    const width = tooltip.offsetWidth;
-    const height = tooltip.offsetHeight;
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
-
-    const right = telemetryHover.x + gap;
-    const left = telemetryHover.x - width - gap;
-
-    const preferredLeft =
-      right + width + margin <= containerWidth ? right : left;
-
-    const nextLeft = Math.max(
-      margin,
-      Math.min(preferredLeft, containerWidth - width - margin),
-    );
-
-    const nextTop = Math.max(
-      margin,
-      Math.min(telemetryHover.y + gap, containerHeight - height - margin),
-    );
-
-    setTooltipPosition({ left: nextLeft, top: nextTop });
-  }, [telemetryHover, channels, laps]);
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const chart = chartRef.current;
-    const coords = chart?.convertFromPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [x, y]) as
-      | [number, number]
-      | undefined;
-
-    const reference = laps.find((lap) => lap.isRef);
-    const point =
-      coords && reference && chart?.containPixel({ gridIndex: 0 }, [x, y])
-        ? nearestDistanceOnLine(coords[0], coords[1], reference.entry.series, zoomRange)
-        : null;
-
-    if (chart && point && reference && !grab.current) {
-      const position = positionAtDist(reference.entry.series, point.dist);
-      if (position) {
-        const pixel = chart.convertToPixel(
-          { xAxisIndex: 0, yAxisIndex: 0 },
-          [position[0], position[1]],
-        ) as [number, number];
-
-        const separation = Math.hypot(x - pixel[0], y - pixel[1]);
-
-        setTelemetryHover(
-          separation <= 12 ? { dist: point.dist, x, y } : null,
-        );
-      } else {
-        setTelemetryHover(null);
-      }
-    } else {
-      setTelemetryHover(null);
-    }
-
-    if (!gestures) return;
-    const hit = nearest(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    // Measured from the box, as the wheel is: over the locator inset or a
+    // button, offsetX counts from that element instead.
+    const box = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - box.left;
+    const py = e.clientY - box.top;
+    const hit = nearest(px, py);
     const g = grab.current;
+    // Never with a button down: a drag is choosing a stretch (or, full
+    // screen, panning), and a touch has no hover to read out.
+    setReadout(
+      hit && !g && e.buttons === 0 && hit.offPx <= LINE_GRAB_PX
+        ? { dist: hit.dist, x: px, y: py }
+        : null,
+    );
+    if (!gestures) return;
     if (g && hit) {
       const next: [number, number] = [Math.min(g.start, hit.dist), Math.max(g.start, hit.dist)];
       if (!g.moved && next[1] - next[0] > 2) {
@@ -1432,7 +1345,7 @@ function MapBody({
     if (range) onZoomChange?.(range);
   };
   const onPointerLeave = () => {
-    setTelemetryHover(null);
+    setReadout(null);
     if (!gestures || grab.current) return;
     onCursorDist?.(null);
   };
@@ -1555,57 +1468,41 @@ function MapBody({
             });
           }}
         />
-        {telemetryHover && laps.length > 0 && (
+        {/* Dressed as the chart tooltip, which lists the same rows. Capped
+            to the map: with a long panel list the last rows go, not the
+            lap strip underneath. */}
+        {readout && readoutRows.length > 0 && (
           <div
-            ref={telemetryTooltipRef}
-            className="pointer-events-none absolute z-20 max-w-[calc(100%-16px)] overflow-hidden rounded-md border border-edge bg-panel/95 p-3 text-xs shadow-xl backdrop-blur"
-            style={{
-              left: tooltipPosition.left,
-              top: tooltipPosition.top,
-            }}
+            ref={readoutRef}
+            className="pointer-events-none absolute z-20 max-h-[calc(100%-16px)] max-w-[calc(100%-16px)] overflow-hidden rounded border border-edge bg-panel-2 px-2.5 py-1.5 text-[11px] text-ink shadow-lg shadow-black/40"
           >
-            <div className="mb-2 font-semibold text-ink">
-              {telemetryHover.dist.toFixed(1)} m
-            </div>
-            <table className="border-separate border-spacing-x-3 border-spacing-y-1 font-tabular">
-              <thead>
-                <tr>
-                  <th className="text-left font-normal text-ink-dim">Channel</th>
-                  {laps.map((lap) => (
-                    <th key={lap.id} className="max-w-28 truncate text-right font-medium" style={{ color: lap.color }}>
-                      {`L${lap.id}`}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="whitespace-nowrap text-ink-dim">Delta</td>
-                  {laps.map((lap) => {
-                    const delta = deltaAtDistance(lap.entry.delta, telemetryHover.dist);
-                    return (
-                      <td key={lap.id} className="text-right text-ink">
-                        {delta == null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(3)} s`}
+            <div className="mb-1 font-semibold font-tabular">{Math.round(readout.dist).toLocaleString()} m</div>
+            <table className="border-collapse font-tabular">
+              {readoutLaps.length > 1 && (
+                <thead>
+                  <tr>
+                    <td />
+                    {readoutLaps.map((lap) => (
+                      <td key={lap.id} className="whitespace-nowrap pb-[3px] pl-3.5 text-right text-ink-dim">
+                        <i
+                          className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-[-1px]"
+                          style={{ backgroundColor: lap.color }}
+                        />
+                        {lap.label.split(" ")[0]}
                       </td>
-                    );
-                  })}
-                </tr>
-                {channels.map((channel) => (
-                  <tr key={channel.key}>
-                    <td className="whitespace-nowrap text-ink-dim">{channel.title}</td>
-                    {laps.map((lap) => {
-                      const value = telemetryAtDistance(
-                        channel,
-                        lap.entry.series,
-                        telemetryHover.dist,
-                        units,
-                      );
-                      return (
-                        <td key={lap.id} className="text-right text-ink">
-                          {value == null ? "—" : formatValueFor(units)(channel.key, value)}
-                        </td>
-                      );
-                    })}
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody>
+                {readoutRows.map((row) => (
+                  <tr key={row.key}>
+                    <td className="whitespace-nowrap py-px leading-[1.6] text-ink-dim">{row.label}</td>
+                    {row.cells.map((cell, i) => (
+                      <td key={readoutLaps[i].id} className="whitespace-nowrap pl-3.5 text-right">
+                        {cell ?? <span className="text-ink-dim">–</span>}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

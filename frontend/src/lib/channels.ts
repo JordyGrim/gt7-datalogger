@@ -7,7 +7,7 @@
 // pre-Tier-1 panel stack; the picker persists to localStorage and the URL.
 
 import type { Units } from "@/lib/format";
-import { speedValue } from "@/lib/format";
+import { speedUnit, speedValue } from "@/lib/format";
 import type { Samples } from "@/lib/types";
 
 export type ChannelGroup = "Driving" | "Tires & wheels" | "Chassis" | "Engine" | "Race";
@@ -457,4 +457,56 @@ export function channelValues(def: ChannelDef, series: Samples): number[] | null
   }
   const raw = series[def.key];
   return Array.isArray(raw) && raw.length > 0 ? raw : null;
+}
+
+// Channel-aware value formatting, shared by the chart tooltip, the per-strip
+// playhead readouts and the race line map's hover readout. Keyed by panel, so
+// the time diff and GT7's suggested gear format too.
+export function formatValueFor(units: Units) {
+  return (key: string, v: number): string => {
+      if (key.startsWith("slip_") || key === "tire_slip") return `${v.toFixed(2)}×`;
+      if (key.startsWith("tt_")) {
+        const sign = key === "tt_balance" && v > 0 ? "+" : "";
+        return `${sign}${v.toFixed(1)} °C`;
+      }
+      if (key.startsWith("sus_") || key === "body_height") return `${v.toFixed(1)} mm`;
+      switch (key) {
+        case "delta":
+          return `${v >= 0 ? "+" : ""}${v.toFixed(3)} s`;
+        case "speed":
+          return `${Math.round(v)} ${speedUnit(units)}`;
+        case "throttle":
+        case "brake":
+          return `${Math.round(v)}%`;
+        case "coast":
+          return v >= 0.5 ? "coasting" : "—";
+        case "gear":
+        case "suggested_gear":
+          return `${Math.round(v)}`;
+        case "rpm":
+          return `${Math.round(v).toLocaleString()} rpm`;
+        case "boost":
+          return `${v.toFixed(2)} bar`;
+        case "yaw_rate":
+        case "kin_yaw":
+        case "yaw_balance":
+          return `${v.toFixed(2)} rad/s`;
+        case "wheel_angle":
+          // A road wheel turns a few hundredths of a radian.
+          return `${v.toFixed(3)} rad`;
+        default:
+          return v.toFixed(2);
+      }
+  };
+}
+
+// A readout's rows for these panels: one per panel, labelled without the
+// unit its values already carry, and under Gear the gear GT7 suggested. The
+// chart tooltip and the map's hover readout both list these, so they read
+// alike.
+export function readoutLines(panels: { key: string; title: string }[]): { key: string; label: string }[] {
+  return panels.flatMap((panel) => {
+    const line = { key: panel.key, label: panel.title.replace(/ \(.*\)| %/, "") };
+    return panel.key === "gear" ? [line, { key: "suggested_gear", label: "Suggested" }] : [line];
+  });
 }

@@ -48,6 +48,11 @@ Notable changes to GT7 Datalogger. The format follows
   puts four charts of your choosing next to the map on a wide screen, sharing
   its cursor and zoom; the full chart stack stays below. Remembered on this
   device. Contributed by @Marstiphal (#156).
+- **Every lap's values on the race line map.** Pointing at the reference line
+  shows a readout there: the time diff and each chart panel, one column per
+  lap the map shows, as the chart tooltip lists them. It works in the
+  full-screen map too, where the charts are out of sight. Contributed by
+  @Marstiphal (#159).
 
 ### Fixed
 
