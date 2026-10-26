@@ -23,7 +23,7 @@ from app.models import TelemetryPacket
 from app.processing.analysis import corners_for_lap
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.live_events import LiveEvent
-from app.processing.sectors import splits_ms
+from app.processing.sectors import Boundary, splits_ms
 from app.race_engineer.detectors import (
     CoachingDetector,
     Detector,
@@ -687,7 +687,11 @@ class RaceEngineerManager:
 
             reference_time_ms = self._sector_reference_time_ms(samples)
 
-            def _sector_reference():
+            def _sector_reference() -> tuple[
+                list[Boundary],
+                list[tuple[float, float]],
+                list[float] | None,
+            ]:
                 authored = sector_source(track)
                 boundaries = validated_sector_boundaries(authored)
                 if boundaries is None or reference_time_ms is None:

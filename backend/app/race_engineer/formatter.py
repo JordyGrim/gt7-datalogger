@@ -12,6 +12,8 @@ thirty-two point five", not three decimal places.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 _ONES = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
     "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
@@ -196,9 +198,9 @@ def spoken_sector_decimal(
     return f"minus {result}" if negative and quantized != 0 else result
 
 
-def _precise_timing_seconds(ms: int | float, places: int, rounding: str):
+def _precise_timing_seconds(ms: int | float, places: int, rounding: str) -> Decimal:
     """Quantize milliseconds to seconds using the selected voice precision."""
-    from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+    from decimal import ROUND_DOWN, ROUND_HALF_UP
 
     if places not in (1, 2, 3):
         raise ValueError("Timing precision must be 1, 2 or 3")

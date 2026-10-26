@@ -390,29 +390,31 @@ async def _apply_race_engineer(service: TelemetryService, payload: SettingsPaylo
         await service.repo.set_setting("race_engineer_units", payload.race_engineer_units)
         changed = True
     if payload.race_engineer_sector_voice_enabled is not None:
-        value = payload.race_engineer_sector_voice_enabled
-        service.settings.race_engineer_sector_voice_enabled = value
-        await service.repo.set_setting("race_engineer_sector_voice_enabled", str(value).lower())
+        sector_enabled = payload.race_engineer_sector_voice_enabled
+        service.settings.race_engineer_sector_voice_enabled = sector_enabled
+        await service.repo.set_setting(
+            "race_engineer_sector_voice_enabled", str(sector_enabled).lower()
+        )
         changed = True
     if payload.race_engineer_sector_voice_decimals is not None:
-        value = payload.race_engineer_sector_voice_decimals
-        service.settings.race_engineer_sector_voice_decimals = value
-        await service.repo.set_setting("race_engineer_sector_voice_decimals", str(value))
+        sector_decimals = payload.race_engineer_sector_voice_decimals
+        service.settings.race_engineer_sector_voice_decimals = sector_decimals
+        await service.repo.set_setting("race_engineer_sector_voice_decimals", str(sector_decimals))
         changed = True
     if payload.race_engineer_sector_voice_rounding is not None:
-        value = payload.race_engineer_sector_voice_rounding
-        service.settings.race_engineer_sector_voice_rounding = value
-        await service.repo.set_setting("race_engineer_sector_voice_rounding", value)
+        sector_rounding = payload.race_engineer_sector_voice_rounding
+        service.settings.race_engineer_sector_voice_rounding = sector_rounding
+        await service.repo.set_setting("race_engineer_sector_voice_rounding", sector_rounding)
         changed = True
     if payload.race_engineer_sector_voice_content is not None:
-        value = payload.race_engineer_sector_voice_content
-        service.settings.race_engineer_sector_voice_content = value
-        await service.repo.set_setting("race_engineer_sector_voice_content", value)
+        sector_content = payload.race_engineer_sector_voice_content
+        service.settings.race_engineer_sector_voice_content = sector_content
+        await service.repo.set_setting("race_engineer_sector_voice_content", sector_content)
         changed = True
     if payload.race_engineer_sector_voice_comparison is not None:
-        value = payload.race_engineer_sector_voice_comparison
-        service.settings.race_engineer_sector_voice_comparison = value
-        await service.repo.set_setting("race_engineer_sector_voice_comparison", value)
+        sector_comparison = payload.race_engineer_sector_voice_comparison
+        service.settings.race_engineer_sector_voice_comparison = sector_comparison
+        await service.repo.set_setting("race_engineer_sector_voice_comparison", sector_comparison)
         changed = True
     if not changed:
         return
