@@ -3,6 +3,12 @@
 import pytest
 
 from app.race_engineer.formatter import spoken_sector_decimal
+from app.race_engineer.sectors import (
+    LiveSectorTracker,
+    interpolated_boundary_crossing,
+    reference_sector_directions,
+    validated_sector_boundaries,
+)
 
 
 @pytest.mark.parametrize(
@@ -60,9 +66,6 @@ def test_spoken_sector_decimal_rejects_invalid_rounding() -> None:
 
 
 
-from app.race_engineer.sectors import validated_sector_boundaries
-
-
 def test_sector_voice_accepts_complete_authored_boundaries() -> None:
     authored = [
         {"n": 1, "end": {"x": 100.0, "z": 200.0}},
@@ -96,9 +99,6 @@ def test_sector_voice_rejects_incomplete_boundaries(authored: list) -> None:
     assert validated_sector_boundaries(authored) is None
 
 
-from app.race_engineer.sectors import interpolated_boundary_crossing
-
-
 def test_sector_voice_interpolates_live_crossing() -> None:
     previous = (95.0, 200.0, 30.0)
     current = (105.0, 200.0, 30.1)
@@ -124,9 +124,6 @@ def test_sector_voice_rejects_distant_crossing() -> None:
         current,
         boundary,
     ) is None
-
-
-from app.race_engineer.sectors import LiveSectorTracker
 
 
 def test_sector_tracker_announces_boundaries_in_order() -> None:
@@ -255,9 +252,6 @@ def test_sector_voice_rejects_reverse_crossing() -> None:
     crossing = tracker.observe(1, (95.0, 200.0, 30.1))
 
     assert crossing is None
-
-
-from app.race_engineer.sectors import reference_sector_directions
 
 
 def test_sector_voice_derives_reference_directions() -> None:

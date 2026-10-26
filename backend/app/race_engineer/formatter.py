@@ -172,7 +172,7 @@ def spoken_sector_decimal(
     Unlike spoken_decimal(), fractional trailing zeros are retained.
     The fractional digits are spoken individually for predictable TTS.
     """
-    from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
+    from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
     if places not in (1, 2, 3):
         raise ValueError("Sector precision must be 1, 2 or 3")
@@ -198,7 +198,7 @@ def spoken_sector_decimal(
 
 def _precise_timing_seconds(ms: int | float, places: int, rounding: str):
     """Quantize milliseconds to seconds using the selected voice precision."""
-    from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
+    from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
     if places not in (1, 2, 3):
         raise ValueError("Timing precision must be 1, 2 or 3")

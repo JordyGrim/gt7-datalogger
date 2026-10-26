@@ -22,8 +22,8 @@ from typing import Any
 from app.models import TelemetryPacket
 from app.processing.analysis import corners_for_lap
 from app.processing.laps import CompletedLap, SessionInfo
-from app.processing.sectors import splits_ms
 from app.processing.live_events import LiveEvent
+from app.processing.sectors import splits_ms
 from app.race_engineer.detectors import (
     CoachingDetector,
     Detector,
@@ -195,6 +195,7 @@ class RaceEngineerManager:
     ) -> VoiceCallout | None:
         """Build a spoken sector comparison through the normal voice policy."""
         from math import isfinite
+
         from app.race_engineer.formatter import spoken_sector_decimal, spoken_sector_duration
 
         splits = self._sector_reference_splits_ms

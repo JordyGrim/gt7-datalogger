@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from app.processing.sectors import Boundary, boundary_points
@@ -108,9 +109,6 @@ def interpolated_boundary_crossing(
         return None
 
     return t0 + fraction * (t1 - t0)
-
-
-from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,7 +311,7 @@ def reference_sector_directions(
     if any(
         later <= earlier
         for earlier, later in zip(
-            boundary_distances, boundary_distances[1:]
+            boundary_distances, boundary_distances[1:], strict=False
         )
     ):
         return None

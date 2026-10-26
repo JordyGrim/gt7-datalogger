@@ -11,7 +11,6 @@ from app.race_engineer.formatter import (
 from app.race_engineer.manager import RaceEngineerManager
 from app.race_engineer.models import CalloutRequest
 
-
 CASES = [
     (1, "round", "one minute thirty-two point five", "point two seconds"),
     (1, "truncate", "one minute thirty-two point four", "point two seconds"),
