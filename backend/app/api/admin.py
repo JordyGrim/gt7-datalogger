@@ -65,6 +65,11 @@ async def get_settings(request: Request) -> dict[str, Any]:
             c for c in CATEGORIES if c in s.enabled_callout_categories()
         ],
         "race_engineer_units": s.race_engineer_units,
+        "race_engineer_sector_voice_enabled": s.race_engineer_sector_voice_enabled,
+        "race_engineer_sector_voice_decimals": s.race_engineer_sector_voice_decimals,
+        "race_engineer_sector_voice_rounding": s.race_engineer_sector_voice_rounding,
+        "race_engineer_sector_voice_content": s.race_engineer_sector_voice_content,
+        "race_engineer_sector_voice_comparison": s.race_engineer_sector_voice_comparison,
         # The sync service (#79). The token itself never leaves the server:
         # a hint says which one is stored, `sync_token_set` whether any is.
         "sync_url": s.sync_url,
@@ -93,6 +98,11 @@ class SettingsPayload(BaseModel):
     # Literal, so the category list has exactly one definition.
     race_engineer_categories: list[str] | None = None
     race_engineer_units: Literal["metric", "imperial"] | None = None
+    race_engineer_sector_voice_enabled: bool | None = None
+    race_engineer_sector_voice_decimals: int | None = Field(default=None, ge=1, le=3, strict=True)
+    race_engineer_sector_voice_rounding: Literal["round", "truncate"] | None = None
+    race_engineer_sector_voice_content: Literal["delta", "time", "both"] | None = None
+    race_engineer_sector_voice_comparison: Literal["individual", "cumulative"] | None = None
     # Where sync goes: the two fields typed by hand. A bare host is read as
     # https; an empty url means the default server; an empty token forgets
     # it. The one-paste form the service issues — a `gt7sync://…?token=…`
@@ -379,6 +389,31 @@ async def _apply_race_engineer(service: TelemetryService, payload: SettingsPaylo
         service.settings.race_engineer_units = payload.race_engineer_units
         await service.repo.set_setting("race_engineer_units", payload.race_engineer_units)
         changed = True
+    if payload.race_engineer_sector_voice_enabled is not None:
+        value = payload.race_engineer_sector_voice_enabled
+        service.settings.race_engineer_sector_voice_enabled = value
+        await service.repo.set_setting("race_engineer_sector_voice_enabled", str(value).lower())
+        changed = True
+    if payload.race_engineer_sector_voice_decimals is not None:
+        value = payload.race_engineer_sector_voice_decimals
+        service.settings.race_engineer_sector_voice_decimals = value
+        await service.repo.set_setting("race_engineer_sector_voice_decimals", str(value))
+        changed = True
+    if payload.race_engineer_sector_voice_rounding is not None:
+        value = payload.race_engineer_sector_voice_rounding
+        service.settings.race_engineer_sector_voice_rounding = value
+        await service.repo.set_setting("race_engineer_sector_voice_rounding", value)
+        changed = True
+    if payload.race_engineer_sector_voice_content is not None:
+        value = payload.race_engineer_sector_voice_content
+        service.settings.race_engineer_sector_voice_content = value
+        await service.repo.set_setting("race_engineer_sector_voice_content", value)
+        changed = True
+    if payload.race_engineer_sector_voice_comparison is not None:
+        value = payload.race_engineer_sector_voice_comparison
+        service.settings.race_engineer_sector_voice_comparison = value
+        await service.repo.set_setting("race_engineer_sector_voice_comparison", value)
+        changed = True
     if not changed:
         return
     service.engineer.configure(
@@ -386,6 +421,11 @@ async def _apply_race_engineer(service: TelemetryService, payload: SettingsPaylo
         verbosity=service.settings.race_engineer_verbosity,
         categories=service.settings.enabled_callout_categories(),
         units=service.settings.race_engineer_units,
+        sector_voice_enabled=service.settings.race_engineer_sector_voice_enabled,
+        sector_voice_decimals=service.settings.race_engineer_sector_voice_decimals,
+        sector_voice_rounding=service.settings.race_engineer_sector_voice_rounding,
+        sector_voice_content=service.settings.race_engineer_sector_voice_content,
+        sector_voice_comparison=service.settings.race_engineer_sector_voice_comparison,
     )
     service.publish_engineer_status()
     log.info(
