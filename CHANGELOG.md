@@ -19,6 +19,14 @@ Notable changes to GT7 Datalogger. The format follows
   data folder; Settings cannot restore one yet, and the guide says how to put it back
   by hand. The lap exports that used to sit under Back up are now **Export laps**
   (#161).
+- **Sector times from the Race Engineer.** With **Sector announcements** on
+  (Settings › Race Engineer, off by default), the engineer calls each sector as
+  you complete it, against the coaching reference: the delta, the sector time
+  or both, sector by sector or cumulative. It needs the circuit's sector
+  boundaries, authored in Tracks, where the checklist now has a **Sectors**
+  row. The same switch sets how many decimals (1 to 3) and whether rounded or
+  truncated, for sector and lap time announcements alike. Contributed by
+  @Marstiphal (#165).
 
 ## [0.8.1] - 2026-10-21
 
