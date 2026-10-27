@@ -14,7 +14,7 @@ from typing import Any
 
 # Callout categories the user can toggle individually, in display order.
 # Mirrored by hand in frontend/src/lib/types.ts (CALLOUT_CATEGORIES) and
-# described for users in frontend/src/lib/calloutCatalog.ts — which a test in
+# described for users in frontend/src/lib/calloutCatalog.ts â€” which a test in
 # tests/test_race_engineer.py checks against the SPECS table below.
 CATEGORIES = (
     "system",
@@ -32,7 +32,7 @@ CATEGORIES = (
 
 VERBOSITY_MODES = ("minimal", "race", "coach")
 # Matches the shipped GT7_RACE_ENGINEER_VERBOSITY default. The server setting is
-# a ceiling over every device, so the default has to be the maximum — capping it
+# a ceiling over every device, so the default has to be the maximum â€” capping it
 # lower here would put categories out of reach with no visible cause.
 DEFAULT_VERBOSITY = "coach"
 
@@ -79,6 +79,7 @@ SPECS: dict[str, CalloutSpec] = {
     "test": CalloutSpec("system", 20, 10_000),
     # lap / pace
     "lap_time": CalloutSpec("lap", 60, 10_000),
+    "sector_time": CalloutSpec("lap", 55, 4_000),
     "personal_best": CalloutSpec("pace", 70, 12_000),
     "pace_drop": CalloutSpec("pace", 62, 12_000),
     # race state

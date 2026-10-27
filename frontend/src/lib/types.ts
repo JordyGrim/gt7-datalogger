@@ -844,6 +844,11 @@ export interface AdminSettings {
   race_engineer_verbosity: Verbosity;
   race_engineer_categories: CalloutCategory[];
   race_engineer_units: SpokenUnits;
+  race_engineer_sector_voice_enabled: boolean;
+  race_engineer_sector_voice_decimals: 1 | 2 | 3;
+  race_engineer_sector_voice_rounding: "round" | "truncate";
+  race_engineer_sector_voice_content: "delta" | "time" | "both";
+  race_engineer_sector_voice_comparison: "individual" | "cumulative";
   // The sync service (#79). The token never comes back from the server:
   // `sync_token_set` says whether one is stored, the hint which one.
   sync_url: string;
