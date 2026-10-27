@@ -268,6 +268,7 @@ def spoken_sector_duration(
     spoken_minutes = f"{spoken_int(count)} {plural(count, 'minute')}"
     return f"{spoken_minutes} {spoken_seconds} seconds"
 
+
 def spoken_precise_gap(
     ms: int | float,
     places: int = 3,

@@ -491,11 +491,13 @@ async def test_chase_reference_prepares_sector_times(monkeypatch) -> None:
     mgr.on_session(SessionInfo(car_id=7, started_at="now"), session_id=1)
     mgr.ctx.track_name = "Test Circuit"
 
+    # A sample every 0.75 s: live timing never interpolates across a gap
+    # longer than a second, and the reference is timed by the same rule.
     samples = {
-        "t": [i * 7.5 for i in range(13)],
-        "dist": [i * 2.5 for i in range(13)],
-        "pos_x": [i * 2.5 for i in range(13)],
-        "pos_z": [0.0] * 13,
+        "t": [i * 0.75 for i in range(121)],
+        "dist": [i * 0.25 for i in range(121)],
+        "pos_x": [i * 0.25 for i in range(121)],
+        "pos_z": [0.0] * 121,
     }
 
     authored = [
@@ -552,10 +554,10 @@ async def test_faster_lap_replaces_chase_sector_reference(monkeypatch) -> None:
 
     def telemetry(duration_s: float) -> dict[str, list[float]]:
         return {
-            "t": [i * duration_s / 12 for i in range(13)],
-            "dist": [i * 2.5 for i in range(13)],
-            "pos_x": [i * 2.5 for i in range(13)],
-            "pos_z": [0.0] * 13,
+            "t": [i * duration_s / 120 for i in range(121)],
+            "dist": [i * 0.25 for i in range(121)],
+            "pos_x": [i * 0.25 for i in range(121)],
+            "pos_z": [0.0] * 121,
         }
 
     historical = telemetry(90.0)
@@ -804,13 +806,13 @@ def test_sector_voice_emits_first_sector_comparison() -> None:
         cumulative_ms=30050.0,
     )
 
-    callout = manager._sector_callout(2, crossing)
+    callout = manager.sector_callout(2, crossing)
 
     assert callout is not None
     assert callout.event_type == "sector_time"
     assert callout.category == "lap"
     assert callout.priority == 55
-    assert callout.ttl_ms == 4000
+    assert callout.ttl_ms == 15_000
     assert "sector one" in callout.text.lower()
     assert "faster" in callout.text.lower()
 
@@ -870,7 +872,7 @@ def test_sector_voice_suppresses_invalid_announcements(failure: str) -> None:
         cumulative_ms=cumulative_ms,
     )
 
-    assert manager._sector_callout(2, crossing) is None
+    assert manager.sector_callout(2, crossing) is None
     assert manager.stats["emitted"] == 0
 
 
@@ -946,6 +948,157 @@ def test_s3_voice_respects_completed_lap_validity(valid: bool) -> None:
     assert tracker.complete(2, 79600.0) is None
 
 
+# Slower than any browser voice at the default rate (about 14 characters a
+# second), so the wait it estimates is on the long side.
+SPEECH_MS_PER_CHAR = 90
+
+
+@pytest.mark.parametrize("decimals", [1, 3])
+def test_final_sector_outlives_the_lap_announcement_ahead_of_it(
+    decimals: int,
+) -> None:
+    """S3 is emitted with the lap's own announcement, which the browser
+    speaks first (it arrives first, at a higher priority). S3 must still be
+    live once everything ahead of it has been said."""
+    from datetime import UTC, datetime
+
+    from app.processing.laps import CompletedLap
+    from app.race_engineer.manager import RaceEngineerManager
+
+    manager = RaceEngineerManager(enabled=True)
+    manager.configure(
+        sector_voice_enabled=True,
+        sector_voice_decimals=decimals,
+        sector_voice_content="both",
+    )
+    manager.ctx.reference = {"t": [0.0, 80.0], "dist": [0.0, 100.0]}
+    manager._sector_reference_splits_ms = [30500.0, 20000.0, 29500.0]
+    tracker = manager._sector_tracker
+    tracker.configure(
+        [
+            {"n": 1, "name": "", "x": 10.0, "z": 0.0},
+            {"n": 2, "name": "", "x": 20.0, "z": 0.0},
+        ],
+        directions=[(1.0, 0.0), (1.0, 0.0)],
+    )
+    tracker.observe(2, (9.0, 0.0, 30.0))
+    tracker.observe(2, (11.0, 0.0, 30.1))
+    tracker.observe(2, (19.0, 0.0, 50.0))
+    tracker.observe(2, (21.0, 0.0, 50.1))
+
+    lap = CompletedLap(
+        number=2,
+        time_ms=81_234,
+        finished_at=datetime.now(UTC).isoformat(),
+        car_id=7,
+        samples={"t": [], "dist": []},
+        fuel_start=10.0,
+        fuel_end=9.0,
+        full_lap=True,
+        # A gap to the best lengthens the announcement S3 waits behind.
+        session_best_before_ms=80_000,
+    )
+    lap.span_confirmed = True
+
+    callouts = manager.on_lap(lap)
+    s3 = next(c for c in callouts if c.event_type == "sector_time")
+    ahead = [
+        c for c in callouts
+        if c is not s3 and (c is callouts[0] or c.priority > s3.priority)
+    ]
+
+    assert any(c.event_type == "lap_time" for c in ahead)
+    wait_ms = sum(len(c.text) for c in ahead) * SPEECH_MS_PER_CHAR
+    assert s3.ttl_ms > wait_ms
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("comparison", ["individual", "cumulative"])
+async def test_lap_driven_like_the_reference_is_level_at_every_sector(
+    comparison: str,
+) -> None:
+    """The reference's sector times come from the rule live laps are timed
+    by, so a lap that repeats the reference sample for sample hears "level"
+    at every sector, even with each boundary between two samples."""
+    from datetime import UTC, datetime
+
+    from app.processing.laps import CompletedLap, SessionInfo
+    from app.processing.sectors import splits_ms
+    from app.race_engineer.manager import RaceEngineerManager
+
+    # 20 s down a straight at 50 m/s and 60 Hz, rounded as the lap processor
+    # records it; the first boundary falls between t = 10.0 and 10.0167.
+    n = 1200
+    samples = {
+        "t": [round(i / 60, 4) for i in range(n)],
+        "dist": [round(i * 50 / 60, 2) for i in range(n)],
+        "pos_x": [round(i * 50 / 60, 2) for i in range(n)],
+        "pos_z": [0.0] * n,
+        "speed": [180.0] * n,
+    }
+
+    def halfway(i: int) -> float:
+        return (samples["pos_x"][i] + samples["pos_x"][i + 1]) / 2
+
+    authored = [
+        {"n": 1, "end": {"x": halfway(600), "z": 0.0}},
+        {"n": 2, "end": {"x": halfway(900), "z": 0.0}},
+    ]
+
+    manager = RaceEngineerManager(enabled=True)
+    manager.configure(
+        sector_voice_enabled=True, sector_voice_comparison=comparison
+    )
+    manager.on_session(SessionInfo(car_id=7, started_at="now"), session_id=1)
+    manager.ctx.track_name = "Test Circuit"
+    manager.sector_source = lambda track: authored
+
+    def lap(number: int) -> CompletedLap:
+        record = CompletedLap(
+            number=number,
+            time_ms=20_000,
+            finished_at=datetime.now(UTC).isoformat(),
+            car_id=7,
+            samples=samples,
+            fuel_start=10.0,
+            fuel_end=9.0,
+            full_lap=True,
+        )
+        record.span_confirmed = True
+        return record
+
+    manager.on_lap(lap(1))
+    await manager.refresh_reference()
+
+    splits = manager._sector_reference_splits_ms
+    assert splits is not None and len(splits) == 3
+    assert sum(splits) == pytest.approx(20_000.0)
+    # Read off the nearest sample instead, S1 would be half a frame out.
+    boundaries = validated_sector_boundaries(authored)
+    assert boundaries is not None
+    nearest = splits_ms(samples, boundaries, 20_000)
+    assert nearest is not None
+    assert abs(nearest[0] - splits[0]) > 5
+
+    callouts = []
+    for sample in zip(
+        samples["pos_x"], samples["pos_z"], samples["t"], strict=True
+    ):
+        crossing = manager.observe_sector(2, sample)
+        if crossing is not None:
+            callout = manager.sector_callout(2, crossing)
+            assert callout is not None
+            callouts.append(callout)
+    callouts += [
+        c for c in manager.on_lap(lap(2)) if c.event_type == "sector_time"
+    ]
+
+    assert [c.metadata["sector"] for c in callouts] == [1, 2, 3]
+    for callout in callouts:
+        assert callout.metadata["delta_ms"] == pytest.approx(0.0, abs=1e-6)
+        assert "level with the reference" in callout.text
+
+
 @pytest.mark.parametrize(
     ("decimals", "rounding", "expected"),
     [
@@ -979,7 +1132,7 @@ def test_sector_voice_configurable_precision(
         cumulative_ms=30239.0,
     )
 
-    callout = manager._sector_callout(2, crossing)
+    callout = manager.sector_callout(2, crossing)
 
     assert callout is not None
     assert callout.text == expected
@@ -1186,7 +1339,7 @@ def test_variable_sector_voice_announcements(
         cumulative_ms=sector_count * 10000.0 + 500.0,
     )
 
-    callout = manager._sector_callout(2, crossing)
+    callout = manager.sector_callout(2, crossing)
 
     assert callout is not None
     assert callout.text == (
@@ -1358,7 +1511,7 @@ def test_sector_voice_content_modes(
         cumulative_ms=1200.0,
     )
 
-    callout = manager._sector_callout(2, crossing)
+    callout = manager.sector_callout(2, crossing)
 
     assert callout is not None
     assert callout.text == expected
@@ -1433,7 +1586,7 @@ def test_sector_voice_comparison_modes(
         cumulative_ms=cumulative_ms,
     )
 
-    callout = manager._sector_callout(2, crossing)
+    callout = manager.sector_callout(2, crossing)
 
     assert callout is not None
     assert callout.text == expected

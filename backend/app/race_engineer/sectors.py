@@ -235,8 +235,6 @@ class LiveSectorTracker:
 
         return result
 
-
-
     def complete(self, lap: int, lap_time_ms: float) -> SectorCrossing | None:
         """Complete the final sector only after all authored boundaries were crossed."""
         if (
@@ -257,6 +255,38 @@ class LiveSectorTracker:
         )
         self._next_sector += 1
         return final
+
+
+def reference_sector_splits(
+    samples: dict[str, list[float]],
+    boundaries: list[Boundary],
+    directions: list[tuple[float, float]],
+    time_ms: float,
+) -> list[float] | None:
+    """The reference lap's sector times, timed by the rule live laps are.
+
+    The reference is replayed through a LiveSectorTracker, so each boundary
+    is crossed where interpolated_boundary_crossing puts it, between two
+    samples. processing.sectors.splits_ms reads the clock at the NEAREST
+    sample instead, up to half a frame away (more across dropped frames),
+    and a lap driven exactly like the reference would then hear a sector
+    gained or lost that was never there. None when the replay misses a
+    boundary, which a live lap on the same line would miss too.
+    """
+    xs = samples.get("pos_x") or []
+    zs = samples.get("pos_z") or []
+    ts = samples.get("t") or []
+    tracker = LiveSectorTracker()
+    tracker.configure(boundaries, directions=directions)
+    splits: list[float] = []
+    for sample in zip(xs, zs, ts, strict=False):
+        crossing = tracker.observe(1, sample)
+        if crossing is not None:
+            splits.append(crossing.time_ms)
+    final = tracker.complete(1, time_ms)
+    if final is None:
+        return None
+    return [*splits, final.time_ms]
 
 
 def reference_sector_directions(

@@ -505,7 +505,7 @@ class TelemetryService:
             )
             callouts = self.engineer.on_packet(p)
             if crossing is not None:
-                sector_callout = self.engineer._sector_callout(
+                sector_callout = self.engineer.sector_callout(
                     p.current_lap, crossing
                 )
                 if sector_callout is not None:
@@ -565,6 +565,7 @@ class TelemetryService:
             return None
 
         return (x, z, elapsed)
+
     def _lap_elapsed_s(self) -> float:
         live = self.processor.live_lap_samples
         return live["t"][-1] if live["t"] else 0.0

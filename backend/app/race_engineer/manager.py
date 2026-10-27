@@ -23,7 +23,7 @@ from app.models import TelemetryPacket
 from app.processing.analysis import corners_for_lap
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.live_events import LiveEvent
-from app.processing.sectors import Boundary, splits_ms
+from app.processing.sectors import Boundary
 from app.race_engineer.detectors import (
     CoachingDetector,
     Detector,
@@ -46,6 +46,7 @@ from app.race_engineer.sectors import (
     LiveSectorTracker,
     SectorCrossing,
     reference_sector_directions,
+    reference_sector_splits,
     validated_sector_boundaries,
 )
 from app.race_engineer.state import (
@@ -190,13 +191,17 @@ class RaceEngineerManager:
                 raise ValueError("sector_voice_comparison must be individual or cumulative")
             self.sector_voice_comparison = sector_voice_comparison
 
-    def _sector_callout(
+    def sector_callout(
         self, lap: int, crossing: SectorCrossing
     ) -> VoiceCallout | None:
         """Build a spoken sector comparison through the normal voice policy."""
         from math import isfinite
 
-        from app.race_engineer.formatter import spoken_sector_decimal, spoken_sector_duration
+        from app.race_engineer.formatter import (
+            _precise_timing_seconds,
+            spoken_sector_decimal,
+            spoken_sector_duration,
+        )
 
         splits = self._sector_reference_splits_ms
         if (
@@ -254,7 +259,13 @@ class RaceEngineerManager:
             phrases.append(sector_time)
 
         if self.sector_voice_content in ("delta", "both"):
-            if delta_ms == 0:
+            # Level is what the driver would hear as zero, not an exact
+            # zero: a cumulative reference is a sum of splits, a hair off
+            # the crossing it adds up to.
+            level = _precise_timing_seconds(
+                delta_ms, self.sector_voice_decimals, self.sector_voice_rounding
+            ) == 0
+            if level:
                 phrases.append("level with the reference")
             else:
                 if self.sector_voice_comparison == "cumulative":
@@ -312,6 +323,7 @@ class RaceEngineerManager:
         ):
             return None
         return self._sector_tracker.observe(lap, sample)
+
     # --- pipeline hooks -----------------------------------------------------
 
     def on_packet(self, p: TelemetryPacket) -> list[VoiceCallout]:
@@ -408,7 +420,7 @@ class RaceEngineerManager:
                 record.number, record.time_ms
             )
             if crossing is not None:
-                callout = self._sector_callout(record.number, crossing)
+                callout = self.sector_callout(record.number, crossing)
                 if callout is not None:
                     out.append(callout)
 
@@ -575,11 +587,13 @@ class RaceEngineerManager:
                 return record.time_ms
 
         return None
+
     def _invalidate_sector_reference(self) -> None:
         """Discard sector timing and invalidate outstanding reference work."""
         self._sector_reference_generation += 1
         self._sector_reference_splits_ms = None
         self._sector_tracker.configure([])
+
     # --- coaching reference -------------------------------------------------
 
     def select_chase_reference(
@@ -697,8 +711,12 @@ class RaceEngineerManager:
                 if boundaries is None or reference_time_ms is None:
                     return [], [], None
                 directions = reference_sector_directions(samples, boundaries)
-                splits = splits_ms(samples, boundaries, reference_time_ms)
-                if directions is None or splits is None or len(splits) != len(boundaries) + 1:
+                if directions is None:
+                    return [], [], None
+                splits = reference_sector_splits(
+                    samples, boundaries, directions, reference_time_ms
+                )
+                if splits is None or len(splits) != len(boundaries) + 1:
                     return [], [], None
                 return boundaries, directions, splits
 

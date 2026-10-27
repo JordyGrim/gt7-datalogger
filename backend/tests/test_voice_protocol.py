@@ -454,7 +454,7 @@ async def test_service_publishes_live_sector_callout(
         type(service.engineer), "observe_sector", observe_sector
     )
     monkeypatch.setattr(
-        type(service.engineer), "_sector_callout", sector_callout
+        type(service.engineer), "sector_callout", sector_callout
     )
 
     packet = parse_packet(build_packet(
@@ -475,4 +475,4 @@ async def test_service_publishes_live_sector_callout(
     assert len(sector_events) == 1
     assert sector_events[0].category == "lap"
     assert sector_events[0].priority == 55
-    assert sector_events[0].ttl_ms == 4000
+    assert sector_events[0].ttl_ms == 15_000
