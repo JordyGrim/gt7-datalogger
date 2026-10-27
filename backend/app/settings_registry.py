@@ -100,6 +100,15 @@ ENTRIES: tuple[Entry, ...] = (
         kind="int", minimum=1, maximum=65535,
     ),
     Entry(
+        "record_replays", "Connection", "Record replays",
+        "Record while watching replays: sample laps even when GT7 flags the stream "
+        "as not on track or paused, as replay streams can. Off by default, because "
+        "with it on a real pause keeps sampling too — turn it on for a sitting spent "
+        "watching replays, and [exclude those sessions from bests]"
+        "(../guide/sessions-view.md#excluding-a-session-from-bests)",
+        kind="bool",
+    ),
+    Entry(
         "heartbeat_port", "Connection", "Heartbeat port",
         "Outbound heartbeat UDP port (the console listens on it). Changing it "
         "restarts the listener",

@@ -33,6 +33,7 @@ The **Applies** column says when a change takes effect:
 | `GT7_PS_IP` | *(empty)* | live | Console IP; empty = broadcast auto-discovery |
 | `GT7_PACKET_FORMAT` | `C` | live | Telemetry format requested from the console: `A`, `B`, `~`, or `C` (richest, needs GT7 v1.68+) |
 | `GT7_TELEMETRY_PORT` | `33740` | live | Inbound telemetry UDP port. Changing it restarts the listener |
+| `GT7_RECORD_REPLAYS` | `false` | live | Record while watching replays: sample laps even when GT7 flags the stream as not on track or paused, as replay streams can. Off by default, because with it on a real pause keeps sampling too — turn it on for a sitting spent watching replays, and [exclude those sessions from bests](../guide/sessions-view.md#excluding-a-session-from-bests) |
 | `GT7_HEARTBEAT_PORT` | `33739` | live | Outbound heartbeat UDP port (the console listens on it). Changing it restarts the listener |
 | `GT7_SIM_SCENARIO` | `practice` | live | With `GT7_SOURCE=sim`: `practice`, `race`, `fuel_shortage`, `overheating`, `oil_pressure` — staged situations for testing callouts — and `leader_replay`: pre-roll, one flying lap streamed as lap 0 with a running packet-C lap clock, then `LOADING`, which exercises the [replay-salvage path](../internals/lap-detection.md#replay-salvage) without a console. Changing it restarts the simulator |
 

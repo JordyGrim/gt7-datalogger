@@ -259,3 +259,15 @@ async def test_stats_reports_what_inventory_is_loaded(client) -> None:
     data = (await c.get("/api/admin/stats")).json()
     assert data["cars_loaded"] > 500
     assert data["cars_generated"]  # the shipped file records when it was built
+
+
+async def test_record_replays_applies_live_to_the_processor(client) -> None:
+    c, service = client
+    assert service.processor.ignore_driving_flags is False
+    resp = await c.put("/api/admin/config", json={"values": {"record_replays": True}})
+    assert resp.status_code == 200
+    assert service.settings.record_replays is True
+    assert service.processor.ignore_driving_flags is True
+    resp = await c.put("/api/admin/config", json={"reset": ["record_replays"]})
+    assert resp.status_code == 200
+    assert service.processor.ignore_driving_flags is False

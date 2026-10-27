@@ -9,7 +9,10 @@ explains exactly how.
 For every packet, a sample is recorded onto the in-progress lap **only if all of these
 hold**:
 
-- the car is **on track** (flag bit 0) and the game is **not paused** (bit 1);
+- the car is **on track** (flag bit 0) and the game is **not paused** (bit 1) — unless **Record replays** (`GT7_RECORD_REPLAYS`) is on, which
+  drops this one condition for sittings spent watching replays, because GT7 can
+  stream a replay with the car flagged as not on track. Loading packets are still
+  skipped, and with it on a real pause keeps sampling;
 - the race isn't already finished — after the checkered flag GT7 reports
   `current_lap = total_laps + 1` for the cool-down lap, which is skipped.
 

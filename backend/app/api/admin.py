@@ -250,6 +250,9 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
         await service.restart_source()
     elif key == "mdns":
         await service.discovery.apply()
+    elif key == "record_replays":
+        # The processor reads the flag per packet, so it counts from the next one.
+        service.processor.ignore_driving_flags = bool(value)
     log.info("setting %s changed", key)
 
 

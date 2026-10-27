@@ -7,6 +7,14 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Record while watching replays.** (#87) GT7 can stream a replay with the car
+  flagged as *not on track*, and the recorder only samples packets that are on
+  track and unpaused, so the Live tab moved while nothing was saved. The new
+  **Record replays** setting (`GT7_RECORD_REPLAYS`, Settings › Advanced ›
+  Connection) samples regardless of those two flags. It applies live. It is off by
+  default because a real pause keeps sampling with it on; loading screens are
+  still ignored. Replays record as your own driving, so exclude those sessions
+  from bests.
 - **Backup: one file for a whole install.** Settings › Data › **Back up** makes
   `gt7-backup-<date>.zip` from the parts you pick: **Data** (every session and lap, as
   a copy of the database), **Surveys** (track bundles, corrections, survey logs, car

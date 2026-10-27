@@ -652,3 +652,54 @@ async def test_salvage_trims_frozen_final_frame_hold(setup) -> None:
     assert lap.salvaged is True
     assert lap.time_ms == gt
     assert abs(lap.total_ticks - 400) <= 2
+
+
+# --- replay capture with flagged streams -----------------------------------
+
+REPLAY_FLAGS = int(SimulatorFlags.PAUSED)  # paused, and not on track
+
+
+async def _replay_two_laps(proc: LapProcessor) -> None:
+    for lap in (1, 2):
+        for _ in range(120):
+            await proc.feed(
+                make_packet(current_lap=lap, flags=REPLAY_FLAGS, speed_mps=50.0)
+            )
+    await proc.feed(
+        make_packet(current_lap=3, flags=REPLAY_FLAGS, last_lap_time_ms=61_500, speed_mps=50.0)
+    )
+
+
+async def test_flagged_replay_stream_records_nothing_by_default(setup) -> None:
+    proc, c = setup
+    await _replay_two_laps(proc)
+    assert c.laps == []
+    assert c.sessions == []
+
+
+async def test_record_replays_samples_a_flagged_stream() -> None:
+    c = Collector()
+    proc = LapProcessor(
+        on_lap=c.on_lap,
+        on_session=c.on_session,
+        min_lap_ticks=1,
+        ignore_driving_flags=True,
+    )
+    await _replay_two_laps(proc)
+    assert len(c.sessions) == 1
+    assert [lap.number for lap in c.laps] == [2]
+    assert c.laps[0].time_ms == 61_500
+    assert c.laps[0].total_ticks == 120
+
+
+async def test_record_replays_still_ignores_loading_packets() -> None:
+    c = Collector()
+    proc = LapProcessor(
+        on_lap=c.on_lap,
+        on_session=c.on_session,
+        min_lap_ticks=1,
+        ignore_driving_flags=True,
+    )
+    for _ in range(50):
+        await proc.feed(make_packet(current_lap=1, flags=int(SimulatorFlags.LOADING)))
+    assert c.sessions == []

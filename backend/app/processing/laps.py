@@ -601,6 +601,12 @@ class LapProcessor:
     # How many console frames a salvage held through a stop waits for driving
     # to resume before it is emitted anyway; 0 emits at once.
     salvage_wait_frames: int = SALVAGE_WAIT_FRAMES
+    # Replay capture: some replay streams carry the PAUSED / not-on-track flags
+    # while the footage plays, so the flag gate below would never sample them.
+    # When set, those two flags are ignored (LOADING and a negative lap counter
+    # still count as inactive). Off by default: with it on, a real pause keeps
+    # sampling, so it is for sittings spent watching replays.
+    ignore_driving_flags: bool = False
 
     _session: SessionInfo | None = None
     _awaiting_salvage_continuation: bool = False
@@ -689,6 +695,12 @@ class LapProcessor:
         """Packets this session where both clocks were comparable."""
         return self._lap_clock_samples
 
+    def _driving(self, p: TelemetryPacket) -> bool:
+        """Whether this packet is sampled as driving (or replay footage)."""
+        if p.current_lap < 0:
+            return False
+        return self.ignore_driving_flags or (p.is_on_track and not p.is_paused)
+
     async def feed(self, p: TelemetryPacket) -> None:
         # Frames covered since the previous packet, from the console's own
         # packet counter. Tracked during inactive states too, so their frames
@@ -716,11 +728,11 @@ class LapProcessor:
         finish_boundary = (
             self._session is not None
             and p.car_id == self._session.car_id
-            and not p.is_paused
+            and (self.ignore_driving_flags or not p.is_paused)
             and p.current_lap == self._current_lap + 1
             and 0 < p.total_laps == self._current_lap
         )
-        if (not p.is_on_track or p.is_paused or p.current_lap < 0) and not finish_boundary:
+        if not self._driving(p) and not finish_boundary:
             # Inactive counters cannot confirm a restart. A matching GT7 time
             # can still vouch for a replay that ended without a line crossing.
             if self._session is not None and not p.is_paused:
@@ -837,7 +849,7 @@ class LapProcessor:
         # the only path that can commit it (#26). The completion rule still
         # requires prev > 0, so a real out-lap's 0 -> 1 boundary behaves
         # exactly as before.
-        if p.is_on_track and not p.is_paused and p.current_lap >= 0 and not past_finish:
+        if self._driving(p) and not past_finish:
             if self._current_lap == 0 and len(self._samples["t"]) >= LAP0_MAX_TICKS:
                 # No boundary ever empties the lap-0 buffer; without the cap a
                 # menu streaming stale on-track packets grows it forever.

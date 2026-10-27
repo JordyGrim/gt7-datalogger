@@ -108,6 +108,7 @@ class TelemetryService:
             on_lap=self._on_lap,
             on_session=self._on_session,
             on_race_result=self._on_race_result,
+            ignore_driving_flags=settings.record_replays,
         )
         self.source: UdpTelemetrySource | SimTelemetrySource
         if settings.source == "sim":
@@ -1433,6 +1434,7 @@ class TelemetryService:
             on_session=self._on_session,
             on_race_result=self._on_race_result,
             min_lap_ticks=self.processor.min_lap_ticks,
+            ignore_driving_flags=self.processor.ignore_driving_flags,
         )
         self.session_id = None
         self.survey.session_id = None

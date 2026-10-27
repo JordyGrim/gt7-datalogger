@@ -77,6 +77,11 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Record while watching replays: ignore GT7's PAUSED / not-on-track flags
+    # when sampling laps, for replay streams that carry them. Off by default —
+    # a real pause would then keep sampling.
+    record_replays: bool = False
+
     # A shared repository of contributed track bundles (#47): the URL of its
     # index document, or of the directory holding one ("/index.json" is
     # appended when the URL doesn't end in .json). Defaults to the project's
