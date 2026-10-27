@@ -78,6 +78,7 @@ Delta values are milliseconds, **positive = slower than the reference**.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/api/control/recording` | `{"recording": bool}` — pause/resume lap recording |
+| POST | `/api/control/record-replays` | `{"record_replays": bool}` — sample laps whatever GT7 flags (for watching replays); saved like the setting. Returns the status |
 | POST | `/api/control/log-lap-now` | save the in-progress lap immediately (409 if none) |
 
 ## Surface survey

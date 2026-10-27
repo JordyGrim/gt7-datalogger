@@ -271,3 +271,25 @@ async def test_record_replays_applies_live_to_the_processor(client) -> None:
     resp = await c.put("/api/admin/config", json={"reset": ["record_replays"]})
     assert resp.status_code == 200
     assert service.processor.ignore_driving_flags is False
+
+
+async def test_status_bar_toggle_sets_persists_and_reports_record_replays(client) -> None:
+    c, service = client
+    assert (await c.get("/api/status")).json()["record_replays"] is False
+    resp = await c.post("/api/control/record-replays", json={"record_replays": True})
+    assert resp.status_code == 200
+    assert resp.json()["record_replays"] is True
+    assert service.processor.ignore_driving_flags is True
+    assert service.settings.record_replays is True
+    # Saved like the Settings page saves it, so it survives a restart.
+    assert (await service.repo.get_settings())["record_replays"] == "true"
+    resp = await c.post("/api/control/record-replays", json={"record_replays": False})
+    assert resp.json()["record_replays"] is False
+    assert service.processor.ignore_driving_flags is False
+    assert (await service.repo.get_settings())["record_replays"] == "false"
+
+
+async def test_settings_page_change_reaches_the_status_bar(client) -> None:
+    c, service = client
+    await c.put("/api/admin/config", json={"values": {"record_replays": True}})
+    assert (await c.get("/api/status")).json()["record_replays"] is True

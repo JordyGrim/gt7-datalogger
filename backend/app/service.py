@@ -36,6 +36,7 @@ from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
+from app.settings_registry import to_store
 from app.storage.backup import Backups
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
 from app.storage.secret_store import SecretStore
@@ -1031,6 +1032,7 @@ class TelemetryService:
             "protocol": protocol.PROTOCOL_VERSION,
             "source": self.settings.source,
             "recording": self.recording,
+            "record_replays": self.processor.ignore_driving_flags,
             "session_id": self.session_id,
             "track_name": self.track_name,
             # 60 Hz frames the console numbered but we never received
@@ -1449,6 +1451,20 @@ class TelemetryService:
     async def set_recording(self, recording: bool) -> None:
         async with self.session_lock:
             self.recording = recording
+        self._publish({"type": "status", "data": await self.status()})
+
+    async def set_record_replays(self, enabled: bool, *, persist: bool = True) -> None:
+        """Sample laps whatever GT7 says about on-track / paused (replays).
+
+        The one place the setting is applied, so the status bar's toggle and
+        Settings › Advanced agree: the processor reads the flag per packet, so
+        it counts from the next one, and the new state goes to every client.
+        `persist=False` is for Settings, which saves the value itself.
+        """
+        self.settings.record_replays = enabled
+        self.processor.ignore_driving_flags = enabled
+        if persist:
+            await self.repo.set_setting("record_replays", to_store(enabled))
         self._publish({"type": "status", "data": await self.status()})
 
     async def log_lap_now(self) -> dict[str, Any] | None:

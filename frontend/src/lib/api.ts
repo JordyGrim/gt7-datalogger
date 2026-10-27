@@ -268,6 +268,10 @@ export const api = {
   fuelMap: (lapId: number) => get<FuelMapResult>(`/api/analysis/fuel?lap_id=${lapId}`),
   setRecording: (recording: boolean) =>
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),
+  setRecordReplays: (recordReplays: boolean) =>
+    send<ConnectionStatus>("/api/control/record-replays", "POST", {
+      record_replays: recordReplays,
+    }),
   logLapNow: () => send<{ id: number }>("/api/control/log-lap-now", "POST"),
 
   survey: {

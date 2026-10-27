@@ -11,7 +11,8 @@ Notable changes to GT7 Datalogger. The format follows
   flagged as *not on track*, and the recorder only samples packets that are on
   track and unpaused, so the Live tab moved while nothing was saved. The new
   **Record replays** setting (`GT7_RECORD_REPLAYS`, Settings › Advanced ›
-  Connection) samples regardless of those two flags. It applies live. It is off by
+  Connection) samples regardless of those two flags, and has a **replay** toggle in
+  the status bar beside ● REC. It applies live and is saved. It is off by
   default because a real pause keeps sampling with it on; loading screens are
   still ignored. Replays record as your own driving, so exclude those sessions
   from bests.

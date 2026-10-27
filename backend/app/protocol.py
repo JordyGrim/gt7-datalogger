@@ -238,6 +238,7 @@ class Status(_Open):
     protocol: int
     source: str
     recording: bool
+    record_replays: bool = False
     session_id: int | None
     track_name: str
     frames_dropped: int

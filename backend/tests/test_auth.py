@@ -76,6 +76,7 @@ async def test_mutating_routes_require_token(secured) -> None:
         ("POST", "/api/tracks", {"name": "T", "lap_id": lap_id}),
         ("DELETE", "/api/tracks/1", None),
         ("POST", "/api/control/recording", {"recording": True}),
+        ("POST", "/api/control/record-replays", {"record_replays": True}),
         ("POST", "/api/control/log-lap-now", None),
         ("POST", "/api/layouts", {"name": "l", "kind": "overlay", "config": {}}),
         ("PUT", "/api/layouts/1", {"config": {}}),

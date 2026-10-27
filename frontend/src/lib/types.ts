@@ -46,6 +46,7 @@ export interface LiveFrame {
 export interface ConnectionStatus {
   source: string;
   recording: boolean;
+  record_replays?: boolean; // sample laps whatever GT7 flags — for watching replays
   session_id: number | null;
   track_name: string;
   connected: boolean;

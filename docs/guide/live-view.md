@@ -81,6 +81,14 @@ session.
   UDP 33740), or *Offline* (red: the browser lost the server). Click it to open
   [Settings › Connection](settings.md#connection).
 - **● REC / paused** — toggle lap recording on/off.
+- **replay / ● REPLAY** — toggle **Record replays**. GT7 can stream a replay with the
+  car flagged as not on track, which the recorder otherwise skips: the Live tab moves
+  and nothing is saved. With it on (amber), laps are sampled whatever those flags say,
+  so a replay records; a real pause keeps recording too, so switch it off when you
+  drive. Replays record as your own driving — [exclude those sessions from
+  bests](sessions-view.md#excluding-a-session-from-bests). The same switch is
+  Settings › Advanced › Connection › *Record replays* (`GT7_RECORD_REPLAYS`), and the
+  state is saved.
 - **km/h / mph** — units toggle, persisted in the browser.
 
 ## No telemetry

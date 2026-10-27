@@ -312,6 +312,19 @@
         "title": "LayoutPayload",
         "type": "object"
       },
+      "RecordReplaysPayload": {
+        "properties": {
+          "record_replays": {
+            "title": "Record Replays",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "record_replays"
+        ],
+        "title": "RecordReplaysPayload",
+        "type": "object"
+      },
       "RecordingPayload": {
         "properties": {
           "recording": {
@@ -2347,6 +2360,64 @@
           }
         },
         "summary": "Log Lap Now"
+      }
+    },
+    "/api/control/record-replays": {
+      "post": {
+        "operationId": "set_record_replays_api_control_record_replays_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordReplaysPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Record Replays Api Control Record Replays Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Record Replays"
       }
     },
     "/api/control/recording": {

@@ -152,6 +152,37 @@ export function StatusBar({ view }: { view: View }) {
                   )}
                 </button>
               </Tip>
+              <Tip
+                content={
+                  status.record_replays
+                    ? "Recording replays: laps are sampled even when GT7 reports the car as not on track. A real pause keeps recording too — switch off when you drive."
+                    : "Record replays: sample laps even when GT7 reports the car as not on track"
+                }
+              >
+                <button
+                  onClick={() =>
+                    api
+                      .setRecordReplays(!status.record_replays)
+                      .then(setStatus)
+                      .catch(() => {})
+                  }
+                  aria-pressed={status.record_replays ?? false}
+                  className={`inline-flex items-center gap-1.5 rounded px-2.5 py-0.5 text-[11px] transition-colors ${
+                    status.record_replays
+                      ? "border border-warn/55 font-semibold text-warn"
+                      : "border border-edge text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {status.record_replays ? (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                      REPLAY
+                    </>
+                  ) : (
+                    "replay"
+                  )}
+                </button>
+              </Tip>
             </>
           )}
           <Tip content="Toggle speed units">

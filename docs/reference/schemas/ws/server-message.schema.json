@@ -957,6 +957,11 @@
           "title": "Protocol",
           "type": "integer"
         },
+        "record_replays": {
+          "default": false,
+          "title": "Record Replays",
+          "type": "boolean"
+        },
         "recording": {
           "title": "Recording",
           "type": "boolean"

@@ -1194,6 +1194,16 @@ async def set_recording(request: Request, payload: RecordingPayload) -> dict[str
     return await svc(request).status()
 
 
+class RecordReplaysPayload(BaseModel):
+    record_replays: bool
+
+
+@router.post("/control/record-replays", dependencies=[Depends(require_admin)])
+async def set_record_replays(request: Request, payload: RecordReplaysPayload) -> dict[str, Any]:
+    await svc(request).set_record_replays(payload.record_replays)
+    return await svc(request).status()
+
+
 @router.post("/control/log-lap-now", dependencies=[Depends(require_admin)])
 async def log_lap_now(request: Request) -> dict[str, Any]:
     result = await svc(request).log_lap_now()
